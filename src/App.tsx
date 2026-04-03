@@ -9,10 +9,6 @@ import { db } from './firebase';
 
 // --- Constants ---
 const G = 1.62; // Moon gravity
-const THRUST_ACC = 18.0;
-const ROT_SPEED = 5.5; // Increased for snappier rotation
-const ROT_DAMP = 0.85;
-const MAX_FUEL = 1000;
 const FUEL_BURN = 15;
 const WORLD_W = 2700;
 const CANVAS_W = 900;
@@ -25,6 +21,41 @@ const DIFF_SETTINGS = {
 };
 
 type Difficulty = 'easy' | 'medium' | 'hard';
+type GameMode = 'classic' | 'explore';
+type ShipType = 'pioneer' | 'sparrow' | 'tortoise' | 'frog' | 'mantis' | 'goliath' | 'viper' | 'nomad' | 'eclipse' | 'apollo';
+
+interface ShipDef {
+  name: string;
+  desc: string;
+  color: string;
+  price: number;
+  baseThrust: number;
+  baseRot: number;
+  baseFuel: number;
+  baseHull: number;
+  maxUpgrades: number;
+  upgradeCostBase: number;
+}
+
+const SHIPS: Record<ShipType, ShipDef> = {
+  pioneer: { name: 'PIONEER', desc: 'Standard issue starter ship.', color: '#b0b0be', price: 0, baseThrust: 15, baseRot: 4.5, baseFuel: 800, baseHull: 1.0, maxUpgrades: 3, upgradeCostBase: 100 },
+  sparrow: { name: 'SPARROW', desc: 'Light, agile, but fragile.', color: '#ffcc00', price: 1000, baseThrust: 18, baseRot: 7.0, baseFuel: 600, baseHull: 0.8, maxUpgrades: 4, upgradeCostBase: 150 },
+  tortoise: { name: 'TORTOISE', desc: 'Heavy armor, massive tanks.', color: '#4488ff', price: 1500, baseThrust: 12, baseRot: 3.0, baseFuel: 1500, baseHull: 1.5, maxUpgrades: 4, upgradeCostBase: 200 },
+  frog: { name: 'FROG', desc: 'Powerful vertical thrusters.', color: '#44ff44', price: 2500, baseThrust: 25, baseRot: 3.5, baseFuel: 700, baseHull: 1.2, maxUpgrades: 4, upgradeCostBase: 250 },
+  mantis: { name: 'MANTIS', desc: 'Precision rotation control.', color: '#ff44ff', price: 3500, baseThrust: 14, baseRot: 9.0, baseFuel: 900, baseHull: 0.9, maxUpgrades: 5, upgradeCostBase: 300 },
+  goliath: { name: 'GOLIATH', desc: 'Industrial cargo hauler.', color: '#ff8800', price: 5000, baseThrust: 16, baseRot: 2.5, baseFuel: 2500, baseHull: 1.8, maxUpgrades: 5, upgradeCostBase: 400 },
+  viper: { name: 'VIPER', desc: 'Extreme speed racing ship.', color: '#ff2222', price: 8000, baseThrust: 32, baseRot: 11.0, baseFuel: 500, baseHull: 0.7, maxUpgrades: 5, upgradeCostBase: 500 },
+  nomad: { name: 'NOMAD', desc: 'Built for deep exploration.', color: '#22ffff', price: 12000, baseThrust: 18, baseRot: 5.5, baseFuel: 2000, baseHull: 1.3, maxUpgrades: 6, upgradeCostBase: 600 },
+  eclipse: { name: 'ECLIPSE', desc: 'Advanced stealth technology.', color: '#8822ff', price: 20000, baseThrust: 24, baseRot: 8.0, baseFuel: 1500, baseHull: 1.1, maxUpgrades: 6, upgradeCostBase: 800 },
+  apollo: { name: 'APOLLO', desc: 'The ultimate lunar vessel.', color: '#ffffff', price: 50000, baseThrust: 28, baseRot: 9.0, baseFuel: 3000, baseHull: 2.0, maxUpgrades: 7, upgradeCostBase: 1500 },
+};
+
+interface ShipUpgrades {
+  engine: number;
+  rcs: number;
+  tank: number;
+  hull: number;
+}
 
 interface LeaderboardEntry {
   id?: string;
@@ -60,6 +91,7 @@ interface Pad {
   x2: number;
   y: number;
   cx: number;
+  visited?: boolean;
 }
 
 interface Obstacle {
@@ -74,6 +106,7 @@ interface Terrain {
   pads: Pad[];
   obstacles: Obstacle[];
   N: number;
+  width: number;
 }
 
 interface Ship {
@@ -108,10 +141,49 @@ export default function App() {
   const [tempName, setTempName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [scoreSubmitted, setScoreSubmitted] = useState(false);
+  const [mode, setMode] = useState<GameMode>('classic');
+  const [credits, setCredits] = useState(() => parseInt(localStorage.getItem('credits') || '0'));
+  const [unlockedShips, setUnlockedShips] = useState<ShipType[]>(() => {
+    const saved = JSON.parse(localStorage.getItem('unlockedShips') || '["pioneer"]');
+    return saved.map((s: string) => s === 'classic' ? 'pioneer' : s);
+  });
+  const [selectedShip, setSelectedShip] = useState<ShipType>(() => {
+    const saved = localStorage.getItem('selectedShip') || 'pioneer';
+    return saved === 'classic' ? 'pioneer' : (saved as ShipType);
+  });
+  const [showShop, setShowShop] = useState(false);
+  const [shopViewShip, setShopViewShip] = useState<ShipType>(selectedShip);
+  const [exploreScore, setExploreScore] = useState(0);
+
+  const [shipUpgrades, setShipUpgrades] = useState<Record<string, ShipUpgrades>>(() => {
+    const saved = localStorage.getItem('shipUpgrades');
+    if (saved) return JSON.parse(saved);
+    const initial: Record<string, ShipUpgrades> = {};
+    (Object.keys(SHIPS) as ShipType[]).forEach(k => {
+      initial[k] = { engine: 0, rcs: 0, tank: 0, hull: 0 };
+    });
+    return initial;
+  });
+
+  function getCalculatedStats(type: ShipType, upgrades: ShipUpgrades) {
+    const base = SHIPS[type];
+    const upg = upgrades || { engine: 0, rcs: 0, tank: 0, hull: 0 };
+    return {
+      thrust: base.baseThrust * (1 + upg.engine * 0.15),
+      rot: base.baseRot * (1 + upg.rcs * 0.15),
+      fuel: base.baseFuel * (1 + upg.tank * 0.20),
+      hull: base.baseHull * (1 + upg.hull * 0.15),
+    };
+  }
+
+  function getUpgradeCost(type: ShipType, currentLevel: number) {
+    const base = SHIPS[type];
+    return Math.floor(base.upgradeCostBase * Math.pow(1.6, currentLevel));
+  }
 
   // Game refs to avoid re-renders during the loop
-  const shipRef = useRef<Ship>(mkShip());
-  const terrainRef = useRef<Terrain>(mkTerrain('medium'));
+  const shipRef = useRef<Ship>(mkShip(selectedShip, 'classic'));
+  const terrainRef = useRef<Terrain>(mkTerrain('medium', 'classic'));
   const starsRef = useRef<any[]>(mkStars(250));
   const particlesRef = useRef<Particle[]>([]);
   const sparksRef = useRef<Particle[]>([]);
@@ -120,15 +192,16 @@ export default function App() {
   const keysRef = useRef<Record<string, boolean>>({});
   const lastTRef = useRef(0);
 
-  function mkShip(): Ship {
+  function mkShip(type: ShipType = selectedShip, m: GameMode = mode): Ship {
+    const stats = getCalculatedStats(type, shipUpgrades[type]);
     return {
-      x: WORLD_W / 2,
+      x: m === 'explore' ? 100 : WORLD_W / 2,
       y: 50,
-      vx: (Math.random() - 0.5) * 15,
+      vx: m === 'explore' ? 10 : (Math.random() - 0.5) * 15,
       vy: 3,
       angle: 0,
       av: 0,
-      fuel: MAX_FUEL,
+      fuel: stats.fuel,
       thrusting: false,
       dead: false,
       down: false,
@@ -145,8 +218,10 @@ export default function App() {
     }));
   }
 
-  function mkTerrain(diff: Difficulty = 'medium'): Terrain {
-    const N = 512;
+  function mkTerrain(diff: Difficulty = 'medium', m: GameMode = mode): Terrain {
+    const isExp = m === 'explore';
+    const N = isExp ? 2048 : 512;
+    const W = isExp ? 15000 : WORLD_W;
     const ht = new Float32Array(N);
     ht[0] = CANVAS_H * 0.58;
     ht[N - 1] = CANVAS_H * 0.60;
@@ -167,38 +242,39 @@ export default function App() {
 
     const pads: Pad[] = [];
     const usedRanges: { s: number; e: number }[] = [];
-    for (let p = 0; p < 3; p++) {
+    const numPads = isExp ? 30 : 3;
+    for (let p = 0; p < numPads; p++) {
       for (let attempt = 0; attempt < 50; attempt++) {
         const pw = 15 + Math.floor(Math.random() * 12);
-        const si = Math.floor(30 + Math.random() * (N - 60 - pw));
-        if (usedRanges.some((r) => si > r.e + 25 || si + pw < r.s - 25)) continue;
+        const si = isExp ? Math.floor(30 + p * ((N - 60) / numPads) + (Math.random() - 0.5) * 10) : Math.floor(30 + Math.random() * (N - 60 - pw));
+        if (usedRanges.some((r) => si <= r.e + 25 && si + pw >= r.s - 25)) continue;
         const ph = ht[si];
         for (let i = si; i <= si + pw; i++) ht[i] = ph;
         usedRanges.push({ s: si, e: si + pw });
-        const xScale = WORLD_W / (N - 1);
-        pads.push({ x1: si * xScale, x2: (si + pw) * xScale, y: ph, cx: (si + pw / 2) * xScale });
+        const xScale = W / (N - 1);
+        pads.push({ x1: si * xScale, x2: (si + pw) * xScale, y: ph, cx: (si + pw / 2) * xScale, visited: false });
         break;
       }
     }
 
-    const pts = Array.from({ length: N }, (_, i) => ({ x: i * (WORLD_W / (N - 1)), y: ht[i] }));
+    const pts = Array.from({ length: N }, (_, i) => ({ x: i * (W / (N - 1)), y: ht[i] }));
     
     // Generate obstacles
     const obstacles: Obstacle[] = [];
-    const numObstacles = DIFF_SETTINGS[diff].OBSTACLES;
-    const xScale = WORLD_W / (N - 1);
+    const numObstacles = isExp ? DIFF_SETTINGS[diff].OBSTACLES * 5 : DIFF_SETTINGS[diff].OBSTACLES;
+    const xScale = W / (N - 1);
     
     for (let i = 0; i < numObstacles; i++) {
       for (let attempt = 0; attempt < 20; attempt++) {
         const w = 10 + Math.random() * 20;
         const h = 20 + Math.random() * 60;
-        const x = 50 + Math.random() * (WORLD_W - 100);
+        const x = 50 + Math.random() * (W - 100);
         
         // Don't place on or too close to pads
         if (pads.some(p => x > p.x1 - 40 && x < p.x2 + 40)) continue;
         
         // Find terrain height at this x
-        const f = (x / WORLD_W) * (N - 1);
+        const f = (x / W) * (N - 1);
         const lo = Math.floor(f);
         const y = ht[lo];
         
@@ -207,12 +283,12 @@ export default function App() {
       }
     }
 
-    return { pts, pads, obstacles, N };
+    return { pts, pads, obstacles, N, width: W };
   }
 
   function terrainYAt(wx: number) {
     const t = terrainRef.current;
-    const f = (wx / WORLD_W) * (t.N - 1);
+    const f = (wx / t.width) * (t.N - 1);
     const lo = Math.max(0, Math.min(t.N - 2, Math.floor(f)));
     const frac = f - lo;
     return t.pts[lo].y * (1 - frac) + t.pts[lo + 1].y * frac;
@@ -318,8 +394,8 @@ export default function App() {
   };
 
   const startGame = () => {
-    terrainRef.current = mkTerrain(difficulty);
-    shipRef.current = mkShip();
+    terrainRef.current = mkTerrain(difficulty, mode);
+    shipRef.current = mkShip(selectedShip, mode);
     particlesRef.current = [];
     sparksRef.current = [];
     debrisRef.current = [];
@@ -328,7 +404,14 @@ export default function App() {
     setGameState('playing');
     setResult(null);
     setScoreSubmitted(false);
+    setExploreScore(0);
   };
+
+  useEffect(() => {
+    if (result?.ok && !scoreSubmitted && gameState === 'landed' && mode === 'classic') {
+      submitScore();
+    }
+  }, [result, scoreSubmitted, gameState, mode]);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -365,19 +448,24 @@ export default function App() {
         const s = shipRef.current;
         const keys = keysRef.current;
 
+        const shipStats = getCalculatedStats(selectedShip, shipUpgrades[selectedShip]);
         const rl = keys['arrowleft'] || keys['a'];
         const rr = keys['arrowright'] || keys['d'];
         const thrust = keys['arrowup'] || keys['w'];
         const currentDeg = Math.min(Math.abs((s.angle * 180 / Math.PI) % 360), 360 - Math.abs((s.angle * 180 / Math.PI) % 360));
 
-        s.av += ((rl ? -1 : 0) + (rr ? 1 : 0)) * ROT_SPEED * dt;
-        s.av *= Math.pow(ROT_DAMP, dt * 60);
+        s.av += ((rl ? -1 : 0) + (rr ? 1 : 0)) * shipStats.rot * dt;
+        s.av *= Math.pow(0.85, dt * 60);
         s.angle += s.av * dt;
 
         s.thrusting = !!thrust && s.fuel > 0;
         if (s.thrusting) {
-          s.vx += Math.sin(s.angle) * THRUST_ACC * dt;
-          s.vy += -Math.cos(s.angle) * THRUST_ACC * dt;
+          if (s.down && mode === 'explore') {
+            s.down = false;
+            s.vy = -2;
+          }
+          s.vx += Math.sin(s.angle) * shipStats.thrust * dt;
+          s.vy += -Math.cos(s.angle) * shipStats.thrust * dt;
           s.fuel = Math.max(0, s.fuel - FUEL_BURN * dt);
           // Exhaust
           for (let i = 0; i < 3; i++) {
@@ -396,8 +484,14 @@ export default function App() {
         s.y += s.vy * dt;
 
         // Bounds
-        if (s.x < 10) { s.x = 10; s.vx = Math.abs(s.vx) * 0.3; }
-        if (s.x > WORLD_W - 10) { s.x = WORLD_W - 10; s.vx = -Math.abs(s.vx) * 0.3; }
+        const W = terrainRef.current.width;
+        if (mode === 'explore') {
+          if (s.x < 0) s.x += W;
+          if (s.x > W) s.x -= W;
+        } else {
+          if (s.x < 10) { s.x = 10; s.vx = Math.abs(s.vx) * 0.3; }
+          if (s.x > W - 10) { s.x = W - 10; s.vx = -Math.abs(s.vx) * 0.3; }
+        }
 
         // Collision
         const probes = [[-9, 14], [0, 16], [9, 14], [-11, 3], [11, 3], [0, -11]];
@@ -429,6 +523,10 @@ export default function App() {
           const finalVy = Math.abs(s.vy);
           const pad = padAt(contactX);
           const limits = DIFF_SETTINGS[difficulty];
+          const hullMult = shipStats.hull;
+          const safeVy = limits.SAFE_VY * hullMult;
+          const safeVx = limits.SAFE_VX * hullMult;
+          const safeDeg = limits.SAFE_DEG * hullMult;
 
           // FREEZE STATS HERE
           setStats({
@@ -436,34 +534,61 @@ export default function App() {
             vy: finalVy,
             vx: finalVx,
             tilt: currentDeg,
-            fuel: (s.fuel / MAX_FUEL) * 100
+            fuel: (s.fuel / shipStats.fuel) * 100
           });
 
-          if (pad && !hitObstacle && finalVy < limits.SAFE_VY && finalVx < limits.SAFE_VX && currentDeg < limits.SAFE_DEG) {
-            s.down = true; s.vx = 0; s.vy = 0; s.av = 0;
-            setGameState('landed');
-            // Score multiplier based on difficulty
-            const diffMult = difficulty === 'hard' ? 2.0 : difficulty === 'medium' ? 1.5 : 1.0;
-            const score = Math.round((Math.max(0, 100 - (finalVy / limits.SAFE_VY) * 30 - (finalVx / limits.SAFE_VX) * 20) * 0.55 + (s.fuel / MAX_FUEL) * 45) * diffMult);
-            setResult({ ok: true, reason: '', score });
+          if (pad && !hitObstacle && finalVy < safeVy && finalVx < safeVx && currentDeg < safeDeg) {
+            if (mode === 'explore') {
+              if (!pad.visited) {
+                pad.visited = true;
+                s.fuel = shipStats.fuel;
+                const pts = 500 * (difficulty === 'hard' ? 2 : difficulty === 'medium' ? 1.5 : 1);
+                setExploreScore(prev => prev + pts);
+                setCredits(prev => {
+                  const nc = prev + Math.floor(pts / 10);
+                  localStorage.setItem('credits', nc.toString());
+                  return nc;
+                });
+              }
+              s.down = true; s.vx = 0; s.vy = 0; s.av = 0; s.angle = 0;
+            } else {
+              s.down = true; s.vx = 0; s.vy = 0; s.av = 0;
+              setGameState('landed');
+              // Score multiplier based on difficulty
+              const diffMult = difficulty === 'hard' ? 2.0 : difficulty === 'medium' ? 1.5 : 1.0;
+              const score = Math.round((Math.max(0, 100 - (finalVy / safeVy) * 30 - (finalVx / safeVx) * 20) * 0.55 + (s.fuel / shipStats.fuel) * 45) * diffMult);
+              const earnedCredits = Math.floor(score / 2);
+              setCredits(prev => {
+                const nc = prev + earnedCredits;
+                localStorage.setItem('credits', nc.toString());
+                return nc;
+              });
+              setResult({ ok: true, reason: '', score });
+            }
           } else {
             s.dead = true;
             addExplosion(s.x, s.y);
             spawnDebris(s);
             setGameState('crashed');
-            const why = hitObstacle ? 'HIT OBSTACLE' :
-              !pad ? 'MISSED LANDING PAD' :
-              currentDeg >= limits.SAFE_DEG ? `TILT ${currentDeg.toFixed(1)}° > ${limits.SAFE_DEG}°` :
-                finalVy >= limits.SAFE_VY ? `VERT ${finalVy.toFixed(2)} m/s > ${limits.SAFE_VY.toFixed(1)}` :
-                  `HORIZ ${finalVx.toFixed(2)} m/s > ${limits.SAFE_VX.toFixed(1)}`;
-            setResult({ ok: false, reason: why, score: 0 });
+            if (mode === 'explore' && exploreScore > 0) {
+              setResult({ ok: true, reason: 'EXPLORATION ENDED', score: exploreScore });
+            } else {
+              const why = hitObstacle ? 'HIT OBSTACLE' :
+                !pad ? 'MISSED LANDING PAD' :
+                currentDeg >= safeDeg ? `TILT ${currentDeg.toFixed(1)}° > ${safeDeg.toFixed(1)}°` :
+                  finalVy >= safeVy ? `VERT ${finalVy.toFixed(2)} m/s > ${safeVy.toFixed(1)}` :
+                    `HORIZ ${finalVx.toFixed(2)} m/s > ${safeVx.toFixed(1)}`;
+              setResult({ ok: false, reason: why, score: 0 });
+            }
           }
         }
 
         // Camera
         const tx = s.x - CANVAS_W / 2;
         camXRef.current += (tx - camXRef.current) * 0.1;
-        camXRef.current = Math.max(0, Math.min(WORLD_W - CANVAS_W, camXRef.current));
+        if (mode !== 'explore') {
+          camXRef.current = Math.max(0, Math.min(W - CANVAS_W, camXRef.current));
+        }
 
         // Update HUD during flight
         const gY = terrainYAt(s.x);
@@ -473,7 +598,7 @@ export default function App() {
           vy: Math.abs(s.vy),
           vx: Math.abs(s.vx),
           tilt: currentDeg,
-          fuel: (s.fuel / MAX_FUEL) * 100
+          fuel: (s.fuel / shipStats.fuel) * 100
         });
       }
 
@@ -481,9 +606,10 @@ export default function App() {
       ctx.fillStyle = '#000008'; ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
       // Stars
+      const W = terrainRef.current.width;
       starsRef.current.forEach(s => {
         const tw = 0.6 + 0.4 * Math.sin(ts * 0.0008 + s.t);
-        const sx = ((s.x - camXRef.current * 0.2) + WORLD_W * 5) % CANVAS_W;
+        const sx = ((s.x - camXRef.current * 0.2) + W * 5) % CANVAS_W;
         ctx.beginPath(); ctx.arc(sx, s.y, s.r, 0, Math.PI * 2);
         ctx.fillStyle = `rgba(255,255,255,${s.b * tw})`; ctx.fill();
       });
@@ -494,14 +620,16 @@ export default function App() {
       g.addColorStop(0, '#1a1a2e'); g.addColorStop(1, '#0a0a1a');
       ctx.beginPath(); ctx.moveTo(terrainRef.current.pts[0].x, terrainRef.current.pts[0].y);
       terrainRef.current.pts.forEach(p => ctx.lineTo(p.x, p.y));
-      ctx.lineTo(WORLD_W, CANVAS_H + 50); ctx.lineTo(0, CANVAS_H + 50); ctx.closePath();
+      ctx.lineTo(W, CANVAS_H + 50); ctx.lineTo(0, CANVAS_H + 50); ctx.closePath();
       ctx.fillStyle = g; ctx.fill();
       ctx.strokeStyle = '#5555aa'; ctx.lineWidth = 2; ctx.stroke();
 
       // Pads
       terrainRef.current.pads.forEach(pad => {
-        ctx.fillStyle = '#00ffcc33'; ctx.fillRect(pad.x1, pad.y - 4, pad.x2 - pad.x1, 8);
-        ctx.fillStyle = '#00ffcc'; ctx.fillRect(pad.x1, pad.y - 1, pad.x2 - pad.x1, 3);
+        ctx.fillStyle = pad.visited ? '#555555' : '#00ffcc33';
+        ctx.fillRect(pad.x1, pad.y - 4, pad.x2 - pad.x1, 8);
+        ctx.fillStyle = pad.visited ? '#888888' : '#00ffcc';
+        ctx.fillRect(pad.x1, pad.y - 1, pad.x2 - pad.x1, 3);
       });
 
       // Obstacles
@@ -552,9 +680,10 @@ export default function App() {
       // Ship
       if (!shipRef.current.dead) {
         const s = shipRef.current;
+        const shipStats = SHIPS[selectedShip];
         ctx.save(); ctx.translate(s.x - camXRef.current, s.y); ctx.rotate(s.angle);
         // Ship drawing logic...
-        ctx.fillStyle = '#b0b0be'; ctx.strokeStyle = '#777799'; ctx.lineWidth = 0.5;
+        ctx.fillStyle = shipStats.color; ctx.strokeStyle = '#777799'; ctx.lineWidth = 0.5;
         rrect(ctx, -11, 3, 22, 11, 2); ctx.fill(); ctx.stroke();
         ctx.fillStyle = '#ccccdc'; rrect(ctx, -8, -11, 16, 15, 3); ctx.fill(); ctx.stroke();
         ctx.fillStyle = '#000d22'; ctx.beginPath(); ctx.ellipse(0, -5, 4, 4, 0, 0, Math.PI * 2); ctx.fill();
@@ -576,8 +705,8 @@ export default function App() {
     setGameState('menu');
     setResult(null);
     setScoreSubmitted(false);
-    terrainRef.current = mkTerrain(difficulty);
-    shipRef.current = mkShip();
+    terrainRef.current = mkTerrain(difficulty, mode);
+    shipRef.current = mkShip(selectedShip, mode);
   };
 
   const handleTouch = (key: string, isDown: boolean) => {
@@ -613,16 +742,22 @@ export default function App() {
               <div className="text-[9px] uppercase tracking-widest opacity-50">Altitude</div>
               <div className="text-lg font-bold">{stats.alt.toFixed(0)} m</div>
               <div className="mt-2 text-[9px] uppercase tracking-widest opacity-50">Vert Speed</div>
-              <div className={`text-lg font-bold ${stats.vy >= DIFF_SETTINGS[difficulty].SAFE_VY ? 'text-red-500' : 'text-[#00ffcc]'}`}>
+              <div className={`text-lg font-bold ${stats.vy >= DIFF_SETTINGS[difficulty].SAFE_VY * getCalculatedStats(selectedShip, shipUpgrades[selectedShip]).hull ? 'text-red-500' : 'text-[#00ffcc]'}`}>
                 {stats.vy.toFixed(2)} m/s
               </div>
               <div className="mt-2 text-[9px] uppercase tracking-widest opacity-50">Horiz Speed</div>
-              <div className={`text-lg font-bold ${stats.vx >= DIFF_SETTINGS[difficulty].SAFE_VX ? 'text-orange-500' : 'text-[#00ffcc]'}`}>
+              <div className={`text-lg font-bold ${stats.vx >= DIFF_SETTINGS[difficulty].SAFE_VX * getCalculatedStats(selectedShip, shipUpgrades[selectedShip]).hull ? 'text-orange-500' : 'text-[#00ffcc]'}`}>
                 {stats.vx.toFixed(2)} m/s
               </div>
             </div>
 
             <div className="absolute top-4 right-4 bg-black/80 border border-[#00ffcc33] p-2 sm:p-3 min-w-[120px] sm:min-w-[160px] text-right backdrop-blur-sm">
+              {mode === 'explore' && (
+                <div className="mb-2 pb-2 border-b border-[#00ffcc33]">
+                  <div className="text-[9px] uppercase tracking-widest opacity-50">Score</div>
+                  <div className="text-xl font-bold text-[#ffcc00]">{exploreScore}</div>
+                </div>
+              )}
               <div className="text-[9px] uppercase tracking-widest opacity-50">Fuel</div>
               <div className={`text-lg font-bold ${stats.fuel < 20 ? 'text-red-500' : 'text-[#00ffcc]'}`}>
                 {stats.fuel.toFixed(0)}%
@@ -637,7 +772,7 @@ export default function App() {
             </div>
 
             <div className="absolute bottom-4 left-4 text-[8px] sm:text-[10px] opacity-40">
-              SAFE: VY &lt; {DIFF_SETTINGS[difficulty].SAFE_VY.toFixed(1)} · VX &lt; {DIFF_SETTINGS[difficulty].SAFE_VX.toFixed(1)} · TILT &lt; {DIFF_SETTINGS[difficulty].SAFE_DEG}°
+              SAFE: VY &lt; {(DIFF_SETTINGS[difficulty].SAFE_VY * getCalculatedStats(selectedShip, shipUpgrades[selectedShip]).hull).toFixed(1)} · VX &lt; {(DIFF_SETTINGS[difficulty].SAFE_VX * getCalculatedStats(selectedShip, shipUpgrades[selectedShip]).hull).toFixed(1)} · TILT &lt; {(DIFF_SETTINGS[difficulty].SAFE_DEG * getCalculatedStats(selectedShip, shipUpgrades[selectedShip]).hull).toFixed(1)}°
             </div>
 
             {/* Touch Controls */}
@@ -710,6 +845,7 @@ export default function App() {
                   {result.ok ? (
                     <>
                       Mission Score: <span className="text-white font-bold">{result.score}</span><br />
+                      Earned Credits: <span className="text-[#ffcc00] font-bold">+{Math.floor(result.score / 2)} CR</span><br />
                       Impact: V {stats.vy.toFixed(2)} · H {stats.vx.toFixed(2)} · T {stats.tilt.toFixed(1)}°
                     </>
                   ) : (
@@ -717,44 +853,217 @@ export default function App() {
                   )}
                 </p>
 
-                {result.ok && !scoreSubmitted && (
+                {result.ok && !scoreSubmitted && mode === 'classic' && (
                   <div className="flex flex-col items-center gap-3 bg-[#00ffcc11] p-4 border border-[#00ffcc33] mb-6">
-                    <div className="text-xs tracking-widest">SUBMIT TO LEADERBOARD AS <span className="text-white font-bold">{registeredName}</span></div>
-                    <button
-                      onClick={submitScore}
-                      disabled={isSubmitting}
-                      className="bg-[#00ffcc] text-black px-8 py-2 font-bold disabled:opacity-50 tracking-widest"
-                    >
-                      {isSubmitting ? 'TRANSMITTING...' : 'TRANSMIT SCORE'}
-                    </button>
+                    <div className="text-xs tracking-widest text-[#00ffcc]">TRANSMITTING SCORE...</div>
                   </div>
                 )}
-                {scoreSubmitted && (
+                {scoreSubmitted && mode === 'classic' && (
                   <div className="text-green-400 text-sm tracking-widest mb-6">SCORE TRANSMITTED</div>
                 )}
               </div>
+            ) : showShop ? (
+              <div className="flex flex-col md:flex-row w-full max-w-5xl h-[80vh] bg-black/80 border border-[#00ffcc44] text-left">
+                {/* Left Panel: Ship List */}
+                <div className="w-full md:w-1/3 border-r border-[#00ffcc44] overflow-y-auto p-4 flex flex-col gap-2">
+                  <div className="text-xl text-[#00ffcc] mb-2 tracking-widest font-bold text-center">SHIPYARD</div>
+                  <div className="text-sm text-[#00ffcc88] mb-4 tracking-widest text-center">CREDITS: <span className="text-[#ffcc00] font-bold">{credits}</span></div>
+                  
+                  {(Object.entries(SHIPS) as [ShipType, ShipDef][]).map(([type, ship]) => {
+                    const isUnlocked = unlockedShips.includes(type);
+                    const isSelected = selectedShip === type;
+                    const isViewing = shopViewShip === type;
+                    
+                    return (
+                      <button
+                        key={type}
+                        onClick={() => setShopViewShip(type)}
+                        className={`p-3 text-left border transition-all ${isViewing ? 'border-[#00ffcc] bg-[#00ffcc11]' : 'border-[#00ffcc44] hover:border-[#00ffcc88] bg-black/50'} ${!isUnlocked && 'opacity-60'}`}
+                      >
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="font-bold tracking-widest" style={{ color: ship.color }}>{ship.name}</span>
+                          {isSelected && <span className="text-[9px] bg-[#00ffcc] text-black px-1">ACTIVE</span>}
+                        </div>
+                        <div className="text-[10px] text-[#00ffcc88]">{isUnlocked ? 'UNLOCKED' : `${ship.price} CR`}</div>
+                      </button>
+                    );
+                  })}
+                  
+                  <button
+                    onClick={() => setShowShop(false)}
+                    className="mt-4 px-4 py-3 border border-[#00ffcc44] text-[#00ffcc88] hover:border-[#00ffcc] hover:text-[#00ffcc] transition-all tracking-widest text-xs text-center"
+                  >
+                    BACK TO MENU
+                  </button>
+                </div>
+
+                {/* Right Panel: Ship Details & Upgrades */}
+                <div className="w-full md:w-2/3 p-6 flex flex-col overflow-y-auto">
+                  {(() => {
+                    const viewDef = SHIPS[shopViewShip];
+                    const isUnlocked = unlockedShips.includes(shopViewShip);
+                    const isSelected = selectedShip === shopViewShip;
+                    const upg = shipUpgrades[shopViewShip];
+                    const calc = getCalculatedStats(shopViewShip, upg);
+                    const canAffordShip = credits >= viewDef.price;
+
+                    const renderUpgradeRow = (key: keyof ShipUpgrades, label: string, currentVal: string, nextVal: string) => {
+                      const currentLevel = upg[key];
+                      const isMax = currentLevel >= viewDef.maxUpgrades;
+                      const cost = getUpgradeCost(shopViewShip, currentLevel);
+                      const canAffordUpg = credits >= cost;
+
+                      return (
+                        <div key={key} className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-3 border border-[#00ffcc22] bg-black/30 mb-2">
+                          <div className="mb-2 sm:mb-0">
+                            <div className="text-sm font-bold text-[#00ffcc] tracking-widest">{label} <span className="text-[10px] text-[#00ffcc66]">LVL {currentLevel}/{viewDef.maxUpgrades}</span></div>
+                            <div className="text-xs text-[#00ffcc88]">
+                              {currentVal} {!isMax && <span className="text-[#00ffcc]">→ {nextVal}</span>}
+                            </div>
+                          </div>
+                          {isUnlocked && (
+                            <button
+                              onClick={() => {
+                                if (!isMax && canAffordUpg) {
+                                  setCredits(c => {
+                                    const nc = c - cost;
+                                    localStorage.setItem('credits', nc.toString());
+                                    return nc;
+                                  });
+                                  setShipUpgrades(prev => {
+                                    const next = { ...prev, [shopViewShip]: { ...prev[shopViewShip], [key]: currentLevel + 1 } };
+                                    localStorage.setItem('shipUpgrades', JSON.stringify(next));
+                                    return next;
+                                  });
+                                }
+                              }}
+                              disabled={isMax || !canAffordUpg}
+                              className={`px-4 py-2 text-xs tracking-widest border ${isMax ? 'border-gray-600 text-gray-500' : canAffordUpg ? 'border-[#ffcc00] text-[#ffcc00] hover:bg-[#ffcc0022]' : 'border-red-900 text-red-700'}`}
+                            >
+                              {isMax ? 'MAXED' : `UPGRADE (${cost} CR)`}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    };
+
+                    return (
+                      <>
+                        <div className="flex justify-between items-start mb-4">
+                          <div>
+                            <h2 className="text-3xl font-bold tracking-widest mb-1" style={{ color: viewDef.color }}>{viewDef.name}</h2>
+                            <p className="text-sm text-[#00ffcc88]">{viewDef.desc}</p>
+                          </div>
+                          {isUnlocked ? (
+                            <button
+                              onClick={() => {
+                                setSelectedShip(shopViewShip);
+                                localStorage.setItem('selectedShip', shopViewShip);
+                              }}
+                              disabled={isSelected}
+                              className={`px-6 py-2 text-sm tracking-widest border font-bold ${isSelected ? 'bg-[#00ffcc] text-black border-[#00ffcc]' : 'border-[#00ffcc] text-[#00ffcc] hover:bg-[#00ffcc22]'}`}
+                            >
+                              {isSelected ? 'ACTIVE' : 'SELECT'}
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                if (canAffordShip) {
+                                  setCredits(c => {
+                                    const nc = c - viewDef.price;
+                                    localStorage.setItem('credits', nc.toString());
+                                    return nc;
+                                  });
+                                  setUnlockedShips(prev => {
+                                    const next = [...prev, shopViewShip];
+                                    localStorage.setItem('unlockedShips', JSON.stringify(next));
+                                    return next;
+                                  });
+                                }
+                              }}
+                              disabled={!canAffordShip}
+                              className={`px-6 py-2 text-sm tracking-widest border font-bold ${canAffordShip ? 'border-[#ffcc00] text-[#ffcc00] hover:bg-[#ffcc0022]' : 'border-red-900 text-red-700'}`}
+                            >
+                              BUY FOR {viewDef.price} CR
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="mb-6">
+                          <div className="text-xs tracking-widest text-[#00ffcc66] mb-2">CURRENT STATS</div>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
+                            <div className="p-2 border border-[#00ffcc22] bg-black/50">
+                              <div className="text-[9px] text-[#00ffcc66]">THRUST</div>
+                              <div className="text-[#00ffcc]">{calc.thrust.toFixed(1)}</div>
+                            </div>
+                            <div className="p-2 border border-[#00ffcc22] bg-black/50">
+                              <div className="text-[9px] text-[#00ffcc66]">ROTATION</div>
+                              <div className="text-[#00ffcc]">{calc.rot.toFixed(1)}</div>
+                            </div>
+                            <div className="p-2 border border-[#00ffcc22] bg-black/50">
+                              <div className="text-[9px] text-[#00ffcc66]">FUEL</div>
+                              <div className="text-[#00ffcc]">{calc.fuel.toFixed(0)}</div>
+                            </div>
+                            <div className="p-2 border border-[#00ffcc22] bg-black/50">
+                              <div className="text-[9px] text-[#00ffcc66]">HULL (IMPACT RESIST)</div>
+                              <div className="text-[#00ffcc]">{calc.hull.toFixed(2)}x</div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex-1">
+                          <div className="text-xs tracking-widest text-[#00ffcc66] mb-2">UPGRADE SYSTEMS</div>
+                          {renderUpgradeRow('engine', 'MAIN ENGINE', calc.thrust.toFixed(1), (viewDef.baseThrust * (1 + (upg.engine + 1) * 0.15)).toFixed(1))}
+                          {renderUpgradeRow('rcs', 'RCS THRUSTERS', calc.rot.toFixed(1), (viewDef.baseRot * (1 + (upg.rcs + 1) * 0.15)).toFixed(1))}
+                          {renderUpgradeRow('tank', 'FUEL TANKS', calc.fuel.toFixed(0), (viewDef.baseFuel * (1 + (upg.tank + 1) * 0.20)).toFixed(0))}
+                          {renderUpgradeRow('hull', 'HULL PLATING', calc.hull.toFixed(2) + 'x', (viewDef.baseHull * (1 + (upg.hull + 1) * 0.15)).toFixed(2) + 'x')}
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
             ) : (
               <div className="flex flex-col items-center w-full max-w-md">
-                <div className="text-sm text-[#00ffcc] mb-6 tracking-widest">ACTIVE PILOT: <span className="font-bold text-white">{registeredName}</span></div>
+                <div className="text-sm text-[#00ffcc] mb-2 tracking-widest">ACTIVE PILOT: <span className="font-bold text-white">{registeredName}</span></div>
+                <div className="text-xs text-[#00ffcc88] mb-6 tracking-widest">CREDITS: <span className="text-[#ffcc00] font-bold">{credits}</span></div>
                 
-                <div className="hidden sm:grid grid-cols-2 gap-x-12 gap-y-2 text-xs text-[#00ffcc66] mb-8">
-                  <div><span className="bg-[#00ffcc11] border border-[#00ffcc44] px-2 py-0.5 mr-2 text-[#00ffcc]">↑ / W</span>Thrust</div>
-                  <div><span className="bg-[#00ffcc11] border border-[#00ffcc44] px-2 py-0.5 mr-2 text-[#00ffcc]">← → / A D</span>Rotate</div>
+                <div className="flex gap-4 mb-6 w-full">
+                  <button
+                    onClick={() => setMode('classic')}
+                    className={`flex-1 py-3 text-sm tracking-widest border ${mode === 'classic' ? 'bg-[#00ffcc] text-black border-[#00ffcc]' : 'border-[#00ffcc44] text-[#00ffcc88] hover:border-[#00ffcc]'}`}
+                  >
+                    CLASSIC
+                  </button>
+                  <button
+                    onClick={() => setMode('explore')}
+                    className={`flex-1 py-3 text-sm tracking-widest border ${mode === 'explore' ? 'bg-[#00ffcc] text-black border-[#00ffcc]' : 'border-[#00ffcc44] text-[#00ffcc88] hover:border-[#00ffcc]'}`}
+                  >
+                    EXPLORE
+                  </button>
                 </div>
 
-                <div className="flex gap-2 sm:gap-4 mb-8">
-                  {(['easy', 'medium', 'hard'] as Difficulty[]).map(d => (
-                    <button
-                      key={d}
-                      onClick={() => setDifficulty(d)}
-                      className={`px-4 py-2 text-xs tracking-widest border ${difficulty === d ? 'bg-[#00ffcc] text-black border-[#00ffcc]' : 'border-[#00ffcc44] text-[#00ffcc88] hover:border-[#00ffcc]'}`}
-                    >
-                      {d.toUpperCase()}
-                    </button>
-                  ))}
-                </div>
+                {mode === 'classic' && (
+                  <div className="flex gap-2 sm:gap-4 mb-6 w-full justify-center">
+                    {(['easy', 'medium', 'hard'] as Difficulty[]).map(d => (
+                      <button
+                        key={d}
+                        onClick={() => setDifficulty(d)}
+                        className={`px-4 py-2 text-xs tracking-widest border ${difficulty === d ? 'bg-[#00ffcc] text-black border-[#00ffcc]' : 'border-[#00ffcc44] text-[#00ffcc88] hover:border-[#00ffcc]'}`}
+                      >
+                        {d.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                )}
 
-                {leaderboard.length > 0 && (
+                {mode === 'explore' && (
+                  <div className="text-xs text-[#00ffcc88] mb-6 text-center max-w-sm">
+                    Infinite terrain. Land on stations to refuel and earn credits. Take off again by thrusting. How far can you go?
+                  </div>
+                )}
+
+                {leaderboard.length > 0 && mode === 'classic' && (
                   <div className="w-full bg-black/50 border border-[#00ffcc22] p-4 mb-8 text-left">
                     <div className="text-xs tracking-widest text-[#00ffcc88] mb-3 text-center">TOP PILOTS</div>
                     <div className="space-y-2">
@@ -774,7 +1083,7 @@ export default function App() {
               </div>
             )}
 
-            {registeredName && (
+            {registeredName && !showShop && (
               <div className="flex gap-4 mt-4">
                 <button
                   onClick={startGame}
@@ -782,6 +1091,14 @@ export default function App() {
                 >
                   {gameState === 'menu' ? 'INITIATE DESCENT' : 'RETRY MISSION'}
                 </button>
+                {gameState === 'menu' && (
+                  <button
+                    onClick={() => setShowShop(true)}
+                    className="px-6 sm:px-8 py-3 sm:py-4 border border-[#ffcc00] text-[#ffcc00] hover:bg-[#ffcc00] hover:text-black transition-all duration-200 tracking-widest font-bold"
+                  >
+                    SHIPYARD
+                  </button>
+                )}
                 {gameState !== 'menu' && (
                   <button
                     onClick={exitToMenu}

@@ -9,3 +9,28 @@
 body {
   @apply bg-black;
 }
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(0, 255, 204, 0.05);
+  border-left: 1px solid rgba(0, 255, 204, 0.1);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 255, 204, 0.4);
+  border-radius: 0px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 255, 204, 0.8);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 255, 204, 0.4) rgba(0, 255, 204, 0.05);
+}
