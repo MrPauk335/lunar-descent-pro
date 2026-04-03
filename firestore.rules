@@ -1,0 +1,56 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: leaderboard
+    // Document ID: auto-generated
+    // Fields:
+    //   - playerName: string (required, length 1-20) - The name entered by the player
+    //   - score: number (required, >= 0) - The score achieved
+    //   - difficulty: string (required, in ['easy', 'medium', 'hard']) - The difficulty level played
+    //   - timestamp: timestamp (required) - When the score was achieved
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+    
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+    
+    function isValidLeaderboardEntry(data) {
+      return hasOnlyAllowedFields(['playerName', 'score', 'difficulty', 'timestamp']) &&
+             hasRequiredFields(['playerName', 'score', 'difficulty', 'timestamp']) &&
+             data.playerName is string && data.playerName.size() > 0 && data.playerName.size() <= 20 &&
+             data.score is number && data.score >= 0 && data.score <= 1000 &&
+             data.difficulty in ['easy', 'medium', 'hard'] &&
+             data.timestamp is timestamp;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /leaderboard/{entryId} {
+      // Allow public read for the leaderboard
+      allow read: if true;
+      
+      // Allow public create with strict validation to prevent abuse
+      allow create: if isValidLeaderboardEntry(request.resource.data);
+      
+      // Do not allow updates or deletes
+      allow update, delete: if false;
+    }
+  }
+}

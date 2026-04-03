@@ -1,0 +1,37 @@
+{
+  "entities": {
+    "LeaderboardEntry": {
+      "title": "Leaderboard Entry",
+      "description": "A record of a player's score on a specific difficulty.",
+      "type": "object",
+      "properties": {
+        "playerName": {
+          "type": "string",
+          "description": "The name entered by the player."
+        },
+        "score": {
+          "type": "number",
+          "description": "The score achieved."
+        },
+        "difficulty": {
+          "type": "string",
+          "enum": ["easy", "medium", "hard"],
+          "description": "The difficulty level played."
+        },
+        "timestamp": {
+          "type": "timestamp",
+          "description": "When the score was achieved."
+        }
+      },
+      "required": ["playerName", "score", "difficulty", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/leaderboard/{entryId}": {
+      "schema": {
+        "$ref": "#/entities/LeaderboardEntry"
+      },
+      "description": "Collection of all leaderboard scores."
+    }
+  }
+}

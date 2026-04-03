@@ -1,0 +1,5 @@
+{
+  "name": "Lunar Descent Pro",
+  "description": "A high-fidelity lunar lander simulator with physical debris, frozen impact telemetry, and responsive flight controls.",
+  "requestFramePermissions": []
+}
