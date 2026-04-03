@@ -42,7 +42,7 @@ service cloud.firestore {
     // Rules
     // ===============================================================
 
-    match /leaderboard/{entryId} {
+    match /leaderboard_v2/{entryId} {
       // Allow public read for the leaderboard
       allow read: if true;
       

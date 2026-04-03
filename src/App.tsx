@@ -104,7 +104,8 @@ export default function App() {
   const [stats, setStats] = useState<GameStats>({ alt: 0, vy: 0, vx: 0, tilt: 0, fuel: 100 });
   const [result, setResult] = useState<{ ok: boolean; reason: string; score: number } | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
-  const [playerName, setPlayerName] = useState('');
+  const [registeredName, setRegisteredName] = useState(() => localStorage.getItem('pilotName') || '');
+  const [tempName, setTempName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [scoreSubmitted, setScoreSubmitted] = useState(false);
 
@@ -280,7 +281,7 @@ export default function App() {
 
   const fetchLeaderboard = async () => {
     try {
-      const q = query(collection(db, 'leaderboard'), orderBy('score', 'desc'), limit(10));
+      const q = query(collection(db, 'leaderboard_v2'), orderBy('score', 'desc'), limit(10));
       const snapshot = await getDocs(q);
       const entries: LeaderboardEntry[] = [];
       snapshot.forEach(doc => {
@@ -297,11 +298,11 @@ export default function App() {
   }, []);
 
   const submitScore = async () => {
-    if (!playerName.trim() || !result || !result.ok || scoreSubmitted) return;
+    if (!registeredName || !result || !result.ok || scoreSubmitted) return;
     setIsSubmitting(true);
     try {
-      await addDoc(collection(db, 'leaderboard'), {
-        playerName: playerName.trim().substring(0, 20),
+      await addDoc(collection(db, 'leaderboard_v2'), {
+        playerName: registeredName,
         score: result.score,
         difficulty,
         timestamp: serverTimestamp()
@@ -326,7 +327,6 @@ export default function App() {
     setGameState('playing');
     setResult(null);
     setScoreSubmitted(false);
-    setPlayerName('');
   };
 
   useEffect(() => {
@@ -335,8 +335,12 @@ export default function App() {
       if (e.target instanceof HTMLInputElement) return;
 
       keysRef.current[e.key.toLowerCase()] = e.type === 'keydown';
-      if (e.type === 'keydown' && (e.key === 'r' || e.key === 'R')) startGame();
-      if (e.type === 'keydown' && e.key === ' ' && gameState !== 'playing') startGame();
+      if (e.type === 'keydown' && (e.key === 'r' || e.key === 'R')) {
+        if (registeredName) startGame();
+      }
+      if (e.type === 'keydown' && e.key === ' ' && gameState !== 'playing') {
+        if (registeredName) startGame();
+      }
     };
     window.addEventListener('keydown', handleKey);
     window.addEventListener('keyup', handleKey);
@@ -344,7 +348,7 @@ export default function App() {
       window.removeEventListener('keydown', handleKey);
       window.removeEventListener('keyup', handleKey);
     };
-  }, [gameState, difficulty]);
+  }, [gameState, difficulty, registeredName]);
 
   useEffect(() => {
     let frameId: number;
@@ -614,7 +618,32 @@ export default function App() {
             <h1 className="text-6xl font-black tracking-[0.2em] text-white drop-shadow-[0_0_20px_#00ffcc]">LUNAR</h1>
             <p className="text-xs tracking-[0.5em] text-[#00ffcc88] mb-12">D E S C E N T</p>
 
-            {result ? (
+            {gameState === 'menu' && !registeredName ? (
+              <div className="flex flex-col items-center gap-4 mb-8 z-10">
+                <div className="text-xs tracking-widest text-[#00ffcc88]">REGISTER PILOT IDENTIFICATION</div>
+                <input
+                  type="text"
+                  maxLength={20}
+                  placeholder="ENTER CALLSIGN"
+                  value={tempName}
+                  onChange={(e) => setTempName(e.target.value)}
+                  className="bg-black border border-[#00ffcc] text-[#00ffcc] px-4 py-3 text-center text-xl outline-none focus:bg-[#00ffcc11] uppercase"
+                />
+                <button
+                  onClick={() => {
+                    if (tempName.trim()) {
+                      const name = tempName.trim().toUpperCase();
+                      localStorage.setItem('pilotName', name);
+                      setRegisteredName(name);
+                    }
+                  }}
+                  disabled={!tempName.trim()}
+                  className="px-8 py-3 border border-[#00ffcc] text-[#00ffcc] hover:bg-[#00ffcc] hover:text-black transition-all font-bold disabled:opacity-50 tracking-widest"
+                >
+                  REGISTER
+                </button>
+              </div>
+            ) : result ? (
               <div className="mb-8 w-full max-w-md">
                 <h2 className={`text-4xl font-bold mb-2 ${result.ok ? 'text-green-400' : 'text-red-500'}`}>
                   {result.ok ? '✓ TOUCHDOWN' : '✗ CRASHED'}
@@ -632,24 +661,14 @@ export default function App() {
 
                 {result.ok && !scoreSubmitted && (
                   <div className="flex flex-col items-center gap-3 bg-[#00ffcc11] p-4 border border-[#00ffcc33] mb-6">
-                    <div className="text-xs tracking-widest">SUBMIT TO LEADERBOARD</div>
-                    <div className="flex gap-2 w-full">
-                      <input
-                        type="text"
-                        maxLength={20}
-                        placeholder="PILOT NAME"
-                        value={playerName}
-                        onChange={(e) => setPlayerName(e.target.value)}
-                        className="bg-black border border-[#00ffcc] text-[#00ffcc] px-3 py-2 w-full outline-none focus:bg-[#00ffcc11]"
-                      />
-                      <button
-                        onClick={submitScore}
-                        disabled={isSubmitting || !playerName.trim()}
-                        className="bg-[#00ffcc] text-black px-4 py-2 font-bold disabled:opacity-50"
-                      >
-                        {isSubmitting ? '...' : 'SEND'}
-                      </button>
-                    </div>
+                    <div className="text-xs tracking-widest">SUBMIT TO LEADERBOARD AS <span className="text-white font-bold">{registeredName}</span></div>
+                    <button
+                      onClick={submitScore}
+                      disabled={isSubmitting}
+                      className="bg-[#00ffcc] text-black px-8 py-2 font-bold disabled:opacity-50 tracking-widest"
+                    >
+                      {isSubmitting ? 'TRANSMITTING...' : 'TRANSMIT SCORE'}
+                    </button>
                   </div>
                 )}
                 {scoreSubmitted && (
@@ -658,6 +677,8 @@ export default function App() {
               </div>
             ) : (
               <div className="flex flex-col items-center w-full max-w-md">
+                <div className="text-sm text-[#00ffcc] mb-6 tracking-widest">ACTIVE PILOT: <span className="font-bold text-white">{registeredName}</span></div>
+                
                 <div className="grid grid-cols-2 gap-x-12 gap-y-2 text-xs text-[#00ffcc66] mb-8">
                   <div><span className="bg-[#00ffcc11] border border-[#00ffcc44] px-2 py-0.5 mr-2 text-[#00ffcc]">↑ / W</span>Thrust</div>
                   <div><span className="bg-[#00ffcc11] border border-[#00ffcc44] px-2 py-0.5 mr-2 text-[#00ffcc]">← → / A D</span>Rotate</div>
@@ -695,12 +716,14 @@ export default function App() {
               </div>
             )}
 
-            <button
-              onClick={startGame}
-              className="px-12 py-4 border border-[#00ffcc] text-[#00ffcc] hover:bg-[#00ffcc] hover:text-black transition-all duration-200 tracking-widest font-bold"
-            >
-              {gameState === 'menu' ? 'INITIATE DESCENT' : 'RETRY MISSION'}
-            </button>
+            {registeredName && (
+              <button
+                onClick={startGame}
+                className="px-12 py-4 border border-[#00ffcc] text-[#00ffcc] hover:bg-[#00ffcc] hover:text-black transition-all duration-200 tracking-widest font-bold"
+              >
+                {gameState === 'menu' ? 'INITIATE DESCENT' : 'RETRY MISSION'}
+              </button>
+            )}
           </div>
         )}
       </div>

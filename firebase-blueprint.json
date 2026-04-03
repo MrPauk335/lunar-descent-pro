@@ -27,7 +27,7 @@
     }
   },
   "firestore": {
-    "/leaderboard/{entryId}": {
+    "/leaderboard_v2/{entryId}": {
       "schema": {
         "$ref": "#/entities/LeaderboardEntry"
       },
