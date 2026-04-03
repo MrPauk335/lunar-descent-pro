@@ -4,8 +4,9 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { collection, query, orderBy, limit, getDocs, serverTimestamp, doc, setDoc, increment } from 'firebase/firestore';
-import { db } from './firebase';
+import { collection, query, orderBy, limit, getDocs, serverTimestamp, doc, setDoc, getDoc, increment } from 'firebase/firestore';
+import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
+import { db, auth, provider } from './firebase';
 
 // --- Constants ---
 const G = 1.62; // Moon gravity
@@ -154,6 +155,11 @@ export default function App() {
   const [showShop, setShowShop] = useState(false);
   const [shopViewShip, setShopViewShip] = useState<ShipType>(selectedShip);
   const [exploreScore, setExploreScore] = useState(0);
+  const [user, setUser] = useState<User | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [isProfileLoaded, setIsProfileLoaded] = useState(false);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editNameInput, setEditNameInput] = useState('');
 
   const [shipUpgrades, setShipUpgrades] = useState<Record<string, ShipUpgrades>>(() => {
     const saved = localStorage.getItem('shipUpgrades');
@@ -164,6 +170,58 @@ export default function App() {
     });
     return initial;
   });
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      setUser(currentUser);
+      if (currentUser) {
+        // Load profile from Firestore
+        const profileRef = doc(db, 'players', currentUser.uid);
+        const profileSnap = await getDoc(profileRef);
+        if (profileSnap.exists()) {
+          const data = profileSnap.data();
+          if (data.displayName) {
+            setRegisteredName(data.displayName);
+            localStorage.setItem('pilotName', data.displayName);
+          } else {
+            setRegisteredName(currentUser.displayName || 'PILOT_' + currentUser.uid.substring(0, 5));
+          }
+          if (data.credits !== undefined) setCredits(data.credits);
+          if (data.unlockedShips) setUnlockedShips(data.unlockedShips);
+          if (data.selectedShip) setSelectedShip(data.selectedShip);
+          if (data.shipUpgrades) setShipUpgrades(data.shipUpgrades);
+        } else {
+          // Initialize profile
+          const initialName = currentUser.displayName || 'PILOT_' + currentUser.uid.substring(0, 5);
+          setRegisteredName(initialName);
+          await setDoc(profileRef, {
+            credits: credits,
+            unlockedShips: unlockedShips,
+            selectedShip: selectedShip,
+            shipUpgrades: shipUpgrades,
+            displayName: initialName
+          });
+        }
+        setIsProfileLoaded(true);
+      }
+      setIsAuthReady(true);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Save profile changes to Firestore
+  useEffect(() => {
+    if (user && isAuthReady && isProfileLoaded && registeredName) {
+      const profileRef = doc(db, 'players', user.uid);
+      setDoc(profileRef, {
+        credits,
+        unlockedShips,
+        selectedShip,
+        shipUpgrades,
+        displayName: registeredName
+      }, { merge: true }).catch(err => console.error('Failed to save profile:', err));
+    }
+  }, [credits, unlockedShips, selectedShip, shipUpgrades, registeredName, user, isAuthReady, isProfileLoaded]);
 
   function getCalculatedStats(type: ShipType, upgrades: ShipUpgrades) {
     const base = SHIPS[type];
@@ -377,7 +435,8 @@ export default function App() {
     if (!registeredName || !result || !result.ok || scoreSubmitted) return;
     setIsSubmitting(true);
     try {
-      const playerDocRef = doc(db, 'leaderboard_v3', registeredName.toLowerCase());
+      const docId = user ? user.uid : `${ipAddress.replace(/[^a-zA-Z0-9]/g, '_')}_${registeredName.toLowerCase()}`;
+      const playerDocRef = doc(db, 'leaderboard_v3', docId);
       await setDoc(playerDocRef, {
         playerName: registeredName,
         score: increment(result.score),
@@ -808,32 +867,33 @@ export default function App() {
         {/* Overlays */}
         {(gameState === 'menu' || result) && (
           <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center text-center p-8">
-            <h1 className="text-6xl font-black tracking-[0.2em] text-white drop-shadow-[0_0_20px_#00ffcc]">LUNAR</h1>
-            <p className="text-xs tracking-[0.5em] text-[#00ffcc88] mb-12">D E S C E N T</p>
+            <div className="relative mb-12 flex flex-col items-center">
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120%] h-[160%] bg-[#00ffcc] opacity-20 blur-[60px] rounded-full pointer-events-none"></div>
+              <h1 
+                className="text-[52px] font-black text-white tracking-[8px] mb-[6px] relative z-10 ml-[8px]"
+                style={{ textShadow: '0 0 30px #00ffcc, 0 0 60px #00ffcc55', fontFamily: "'Orbitron', sans-serif" }}
+              >
+                LUNAR
+              </h1>
+              <p className="text-sm md:text-base tracking-[1.2em] text-[#00ffcc] relative z-10 ml-[1.2em] font-medium drop-shadow-[0_0_8px_rgba(0,255,204,0.8)]">
+                DESCENT
+              </p>
+            </div>
 
-            {gameState === 'menu' && !registeredName ? (
+            {gameState === 'menu' && !user ? (
               <div className="flex flex-col items-center gap-4 mb-8 z-10">
-                <div className="text-xs tracking-widest text-[#00ffcc88]">REGISTER PILOT IDENTIFICATION</div>
-                <input
-                  type="text"
-                  maxLength={20}
-                  placeholder="ENTER CALLSIGN"
-                  value={tempName}
-                  onChange={(e) => setTempName(e.target.value)}
-                  className="bg-black border border-[#00ffcc] text-[#00ffcc] px-4 py-3 text-center text-xl outline-none focus:bg-[#00ffcc11] uppercase w-full max-w-[250px]"
-                />
+                <div className="text-xs tracking-widest text-[#00ffcc88]">PILOT AUTHENTICATION REQUIRED</div>
                 <button
-                  onClick={() => {
-                    if (tempName.trim()) {
-                      const name = tempName.trim().toUpperCase();
-                      localStorage.setItem('pilotName', name);
-                      setRegisteredName(name);
-                    }
-                  }}
-                  disabled={!tempName.trim()}
-                  className="px-8 py-3 border border-[#00ffcc] text-[#00ffcc] hover:bg-[#00ffcc] hover:text-black transition-all font-bold disabled:opacity-50 tracking-widest"
+                  onClick={() => signInWithPopup(auth, provider).catch(err => console.error(err))}
+                  className="px-8 py-3 border border-[#00ffcc] text-[#00ffcc] hover:bg-[#00ffcc] hover:text-black transition-all font-bold tracking-widest flex items-center gap-2"
                 >
-                  REGISTER
+                  <svg className="w-5 h-5" viewBox="0 0 24 24">
+                    <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                    <path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                    <path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+                    <path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+                  </svg>
+                  SIGN IN WITH GOOGLE
                 </button>
               </div>
             ) : result ? (
@@ -1025,7 +1085,55 @@ export default function App() {
               </div>
             ) : (
               <div className="flex flex-col items-center w-full max-w-md">
-                <div className="text-sm text-[#00ffcc] mb-2 tracking-widest">ACTIVE PILOT: <span className="font-bold text-white">{registeredName}</span></div>
+                <div className="flex items-center justify-between w-full mb-2">
+                  {isEditingName ? (
+                    <div className="flex items-center gap-2 flex-1 mr-4">
+                      <input
+                        type="text"
+                        maxLength={20}
+                        value={editNameInput}
+                        onChange={(e) => setEditNameInput(e.target.value)}
+                        className="bg-black border border-[#00ffcc] text-[#00ffcc] px-2 py-1 text-sm outline-none uppercase flex-1"
+                        autoFocus
+                      />
+                      <button
+                        onClick={() => {
+                          if (editNameInput.trim()) {
+                            const newName = editNameInput.trim().toUpperCase();
+                            setRegisteredName(newName);
+                            localStorage.setItem('pilotName', newName);
+                            setIsEditingName(false);
+                          }
+                        }}
+                        className="text-[10px] text-[#00ffcc] hover:bg-[#00ffcc] hover:text-black border border-[#00ffcc] px-2 py-1 tracking-widest"
+                      >
+                        SAVE
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="text-sm text-[#00ffcc] tracking-widest flex items-center gap-2">
+                      ACTIVE PILOT: <span className="font-bold text-white">{registeredName}</span>
+                      <button
+                        onClick={() => {
+                          setEditNameInput(registeredName);
+                          setIsEditingName(true);
+                        }}
+                        className="text-[10px] text-[#00ffcc88] hover:text-[#00ffcc] px-1"
+                        title="Edit Callsign"
+                      >
+                        ✎
+                      </button>
+                    </div>
+                  )}
+                  {!isEditingName && (
+                    <button 
+                      onClick={() => signOut(auth)}
+                      className="text-[10px] text-red-500 hover:text-red-400 border border-red-500/30 hover:border-red-500 px-2 py-1 tracking-widest"
+                    >
+                      SIGN OUT
+                    </button>
+                  )}
+                </div>
                 <div className="text-xs text-[#00ffcc88] mb-6 tracking-widest">CREDITS: <span className="text-[#ffcc00] font-bold">{credits}</span></div>
                 
                 <div className="flex gap-4 mb-6 w-full">

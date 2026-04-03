@@ -32,7 +32,7 @@ service cloud.firestore {
     function isValidLeaderboardEntry(data) {
       return hasOnlyAllowedFields(['playerName', 'score', 'difficulty', 'timestamp']) &&
              hasRequiredFields(['playerName', 'score', 'difficulty', 'timestamp']) &&
-             data.playerName is string && data.playerName.size() > 0 && data.playerName.size() <= 20 &&
+             data.playerName is string && data.playerName.size() > 0 && data.playerName.size() <= 50 &&
              data.score is number && data.score >= 0 &&
              data.difficulty in ['easy', 'medium', 'hard'] &&
              data.timestamp is timestamp;
@@ -54,6 +54,10 @@ service cloud.firestore {
 
       // Do not allow deletes
       allow delete: if false;
+    }
+
+    match /players/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
     }
   }
 }
