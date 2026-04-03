@@ -21,6 +21,16 @@ service cloud.firestore {
     // Helper Functions
     // ===============================================================
     
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "meganeirosin@gmail.com" && request.auth.token.email_verified == true));
+    }
+
     function hasOnlyAllowedFields(fields) {
       return request.resource.data.keys().hasOnly(fields);
     }
@@ -52,8 +62,8 @@ service cloud.firestore {
       // Allow update for summing scores (player name must match)
       allow update: if isValidLeaderboardEntry(request.resource.data) && request.resource.data.playerName == resource.data.playerName;
 
-      // Do not allow deletes
-      allow delete: if false;
+      // Allow admin to delete
+      allow delete: if isAdmin();
     }
 
     match /players/{userId} {

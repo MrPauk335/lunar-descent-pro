@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { collection, query, orderBy, limit, getDocs, serverTimestamp, doc, setDoc, getDoc, increment } from 'firebase/firestore';
+import { collection, query, orderBy, limit, getDocs, serverTimestamp, doc, setDoc, getDoc, increment, deleteDoc } from 'firebase/firestore';
 import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import { db, auth, provider } from './firebase';
 
@@ -160,6 +160,7 @@ export default function App() {
   const [isProfileLoaded, setIsProfileLoaded] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
   const [editNameInput, setEditNameInput] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const [shipUpgrades, setShipUpgrades] = useState<Record<string, ShipUpgrades>>(() => {
     const saved = localStorage.getItem('shipUpgrades');
@@ -175,6 +176,7 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
+        setIsAdmin(currentUser.email === 'meganeirosin@gmail.com');
         // Load profile from Firestore
         const profileRef = doc(db, 'players', currentUser.uid);
         const profileSnap = await getDoc(profileRef);
@@ -449,6 +451,17 @@ export default function App() {
       console.error("Error submitting score:", error);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const deleteLeaderboardEntry = async (id: string) => {
+    if (!isAdmin) return;
+    if (!window.confirm("Delete this entry?")) return;
+    try {
+      await deleteDoc(doc(db, 'leaderboard_v3', id));
+      fetchLeaderboard();
+    } catch (error) {
+      console.error("Error deleting entry:", error);
     }
   };
 
@@ -1113,6 +1126,7 @@ export default function App() {
                   ) : (
                     <div className="text-sm text-[#00ffcc] tracking-widest flex items-center gap-2">
                       ACTIVE PILOT: <span className="font-bold text-white">{registeredName}</span>
+                      {isAdmin && <span className="text-[9px] bg-red-600 text-white px-1 font-bold">ADMIN</span>}
                       <button
                         onClick={() => {
                           setEditNameInput(registeredName);
@@ -1176,13 +1190,23 @@ export default function App() {
                     <div className="text-xs tracking-widest text-[#00ffcc88] mb-3 text-center">TOP PILOTS</div>
                     <div className="space-y-2">
                       {leaderboard.map((entry, i) => (
-                        <div key={entry.id} className="flex justify-between text-sm">
+                        <div key={entry.id} className="flex justify-between items-center text-sm">
                           <div className="flex gap-3">
                             <span className="text-[#00ffcc44] w-4">{i + 1}.</span>
                             <span className="text-white">{entry.playerName}</span>
                             <span className="text-[10px] text-[#00ffcc66] self-center">[{entry.difficulty}]</span>
                           </div>
-                          <span className="font-bold text-[#00ffcc]">{entry.score}</span>
+                          <div className="flex items-center gap-3">
+                            <span className="font-bold text-[#00ffcc]">{entry.score}</span>
+                            {isAdmin && (
+                              <button
+                                onClick={() => entry.id && deleteLeaderboardEntry(entry.id)}
+                                className="text-red-500 hover:text-red-400 text-[10px] border border-red-500/30 px-1"
+                              >
+                                DEL
+                              </button>
+                            )}
+                          </div>
                         </div>
                       ))}
                     </div>
