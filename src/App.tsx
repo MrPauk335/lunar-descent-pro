@@ -111,7 +111,7 @@ export default function App() {
 
   // Game refs to avoid re-renders during the loop
   const shipRef = useRef<Ship>(mkShip());
-  const terrainRef = useRef<Terrain>({ pts: [], pads: [], obstacles: [], N: 0 });
+  const terrainRef = useRef<Terrain>(mkTerrain('medium'));
   const starsRef = useRef<any[]>(mkStars(250));
   const particlesRef = useRef<Particle[]>([]);
   const sparksRef = useRef<Particle[]>([]);
@@ -571,15 +571,44 @@ export default function App() {
     return () => cancelAnimationFrame(frameId);
   }, [gameState]);
 
+  const exitToMenu = () => {
+    setGameState('menu');
+    setResult(null);
+    setScoreSubmitted(false);
+    terrainRef.current = mkTerrain(difficulty);
+    shipRef.current = mkShip();
+  };
+
+  const handleTouch = (key: string, isDown: boolean) => {
+    keysRef.current[key] = isDown;
+  };
+
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-black text-[#00ffcc] font-mono overflow-hidden">
-      <div className="relative w-[900px] h-[600px] border border-[#00ffcc22] shadow-2xl">
-        <canvas ref={canvasRef} width={900} height={600} className="bg-[#000008]" />
+    <div className="flex items-center justify-center w-screen h-screen bg-black text-[#00ffcc] font-mono overflow-hidden">
+      <div 
+        className="relative border border-[#00ffcc22] shadow-2xl"
+        style={{ 
+          width: '100%', 
+          height: '100%', 
+          maxWidth: 'calc(100vh * 1.5)', 
+          maxHeight: 'calc(100vw * 0.6666)' 
+        }}
+      >
+        <canvas ref={canvasRef} width={900} height={600} className="bg-[#000008] w-full h-full object-contain" />
 
         {/* HUD */}
         {gameState !== 'menu' && (
-          <div className="absolute inset-0 pointer-events-none p-4">
-            <div className="absolute top-4 left-4 bg-black/80 border border-[#00ffcc33] p-3 min-w-[160px] backdrop-blur-sm">
+          <div className="absolute inset-0 pointer-events-none p-2 sm:p-4">
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 pointer-events-auto z-50">
+              <button 
+                onClick={exitToMenu} 
+                className="px-4 py-2 border border-[#00ffcc44] bg-black/50 text-[#00ffcc88] hover:bg-[#00ffcc] hover:text-black text-xs tracking-widest transition-colors backdrop-blur-sm"
+              >
+                ABORT MISSION
+              </button>
+            </div>
+
+            <div className="absolute top-4 left-4 bg-black/80 border border-[#00ffcc33] p-2 sm:p-3 min-w-[120px] sm:min-w-[160px] backdrop-blur-sm">
               <div className="text-[9px] uppercase tracking-widest opacity-50">Altitude</div>
               <div className="text-lg font-bold">{stats.alt.toFixed(0)} m</div>
               <div className="mt-2 text-[9px] uppercase tracking-widest opacity-50">Vert Speed</div>
@@ -592,7 +621,7 @@ export default function App() {
               </div>
             </div>
 
-            <div className="absolute top-4 right-4 bg-black/80 border border-[#00ffcc33] p-3 min-w-[160px] text-right backdrop-blur-sm">
+            <div className="absolute top-4 right-4 bg-black/80 border border-[#00ffcc33] p-2 sm:p-3 min-w-[120px] sm:min-w-[160px] text-right backdrop-blur-sm">
               <div className="text-[9px] uppercase tracking-widest opacity-50">Fuel</div>
               <div className={`text-lg font-bold ${stats.fuel < 20 ? 'text-red-500' : 'text-[#00ffcc]'}`}>
                 {stats.fuel.toFixed(0)}%
@@ -606,9 +635,37 @@ export default function App() {
               </div>
             </div>
 
-            <div className="absolute bottom-4 left-4 text-[10px] opacity-40">
+            <div className="absolute bottom-4 left-4 text-[8px] sm:text-[10px] opacity-40">
               SAFE: VY &lt; {DIFF_SETTINGS[difficulty].SAFE_VY.toFixed(1)} · VX &lt; {DIFF_SETTINGS[difficulty].SAFE_VX.toFixed(1)} · TILT &lt; {DIFF_SETTINGS[difficulty].SAFE_DEG}°
             </div>
+
+            {/* Touch Controls */}
+            {gameState === 'playing' && (
+              <div className="absolute bottom-4 left-0 right-0 flex justify-between px-4 sm:hidden pointer-events-none z-50">
+                <div className="flex gap-2 pointer-events-auto">
+                  <button 
+                    onPointerDown={() => handleTouch('arrowleft', true)}
+                    onPointerUp={() => handleTouch('arrowleft', false)}
+                    onPointerLeave={() => handleTouch('arrowleft', false)}
+                    className="w-14 h-14 bg-black/50 border border-[#00ffcc] rounded-full flex items-center justify-center text-2xl active:bg-[#00ffcc] active:text-black select-none backdrop-blur-sm"
+                  >←</button>
+                  <button 
+                    onPointerDown={() => handleTouch('arrowright', true)}
+                    onPointerUp={() => handleTouch('arrowright', false)}
+                    onPointerLeave={() => handleTouch('arrowright', false)}
+                    className="w-14 h-14 bg-black/50 border border-[#00ffcc] rounded-full flex items-center justify-center text-2xl active:bg-[#00ffcc] active:text-black select-none backdrop-blur-sm"
+                  >→</button>
+                </div>
+                <div className="pointer-events-auto">
+                  <button 
+                    onPointerDown={() => handleTouch('arrowup', true)}
+                    onPointerUp={() => handleTouch('arrowup', false)}
+                    onPointerLeave={() => handleTouch('arrowup', false)}
+                    className="w-16 h-16 bg-black/50 border border-[#00ffcc] rounded-full flex items-center justify-center text-3xl active:bg-[#00ffcc] active:text-black select-none backdrop-blur-sm"
+                  >↑</button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -627,7 +684,7 @@ export default function App() {
                   placeholder="ENTER CALLSIGN"
                   value={tempName}
                   onChange={(e) => setTempName(e.target.value)}
-                  className="bg-black border border-[#00ffcc] text-[#00ffcc] px-4 py-3 text-center text-xl outline-none focus:bg-[#00ffcc11] uppercase"
+                  className="bg-black border border-[#00ffcc] text-[#00ffcc] px-4 py-3 text-center text-xl outline-none focus:bg-[#00ffcc11] uppercase w-full max-w-[250px]"
                 />
                 <button
                   onClick={() => {
@@ -679,12 +736,12 @@ export default function App() {
               <div className="flex flex-col items-center w-full max-w-md">
                 <div className="text-sm text-[#00ffcc] mb-6 tracking-widest">ACTIVE PILOT: <span className="font-bold text-white">{registeredName}</span></div>
                 
-                <div className="grid grid-cols-2 gap-x-12 gap-y-2 text-xs text-[#00ffcc66] mb-8">
+                <div className="hidden sm:grid grid-cols-2 gap-x-12 gap-y-2 text-xs text-[#00ffcc66] mb-8">
                   <div><span className="bg-[#00ffcc11] border border-[#00ffcc44] px-2 py-0.5 mr-2 text-[#00ffcc]">↑ / W</span>Thrust</div>
                   <div><span className="bg-[#00ffcc11] border border-[#00ffcc44] px-2 py-0.5 mr-2 text-[#00ffcc]">← → / A D</span>Rotate</div>
                 </div>
 
-                <div className="flex gap-4 mb-8">
+                <div className="flex gap-2 sm:gap-4 mb-8">
                   {(['easy', 'medium', 'hard'] as Difficulty[]).map(d => (
                     <button
                       key={d}
@@ -717,12 +774,22 @@ export default function App() {
             )}
 
             {registeredName && (
-              <button
-                onClick={startGame}
-                className="px-12 py-4 border border-[#00ffcc] text-[#00ffcc] hover:bg-[#00ffcc] hover:text-black transition-all duration-200 tracking-widest font-bold"
-              >
-                {gameState === 'menu' ? 'INITIATE DESCENT' : 'RETRY MISSION'}
-              </button>
+              <div className="flex gap-4 mt-4">
+                <button
+                  onClick={startGame}
+                  className="px-8 sm:px-12 py-3 sm:py-4 border border-[#00ffcc] text-[#00ffcc] hover:bg-[#00ffcc] hover:text-black transition-all duration-200 tracking-widest font-bold"
+                >
+                  {gameState === 'menu' ? 'INITIATE DESCENT' : 'RETRY MISSION'}
+                </button>
+                {gameState !== 'menu' && (
+                  <button
+                    onClick={exitToMenu}
+                    className="px-6 sm:px-8 py-3 sm:py-4 border border-[#00ffcc44] text-[#00ffcc88] hover:border-[#00ffcc] hover:text-[#00ffcc] transition-all duration-200 tracking-widest font-bold"
+                  >
+                    MENU
+                  </button>
+                )}
+              </div>
             )}
           </div>
         )}
