@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { collection, addDoc, query, orderBy, limit, getDocs, serverTimestamp } from 'firebase/firestore';
+import { collection, query, orderBy, limit, getDocs, serverTimestamp, doc, setDoc, increment } from 'firebase/firestore';
 import { db } from './firebase';
 
 // --- Constants ---
@@ -281,7 +281,7 @@ export default function App() {
 
   const fetchLeaderboard = async () => {
     try {
-      const q = query(collection(db, 'leaderboard_v2'), orderBy('score', 'desc'), limit(10));
+      const q = query(collection(db, 'leaderboard_v3'), orderBy('score', 'desc'), limit(10));
       const snapshot = await getDocs(q);
       const entries: LeaderboardEntry[] = [];
       snapshot.forEach(doc => {
@@ -301,12 +301,13 @@ export default function App() {
     if (!registeredName || !result || !result.ok || scoreSubmitted) return;
     setIsSubmitting(true);
     try {
-      await addDoc(collection(db, 'leaderboard_v2'), {
+      const playerDocRef = doc(db, 'leaderboard_v3', registeredName.toLowerCase());
+      await setDoc(playerDocRef, {
         playerName: registeredName,
-        score: result.score,
+        score: increment(result.score),
         difficulty,
         timestamp: serverTimestamp()
-      });
+      }, { merge: true });
       setScoreSubmitted(true);
       fetchLeaderboard();
     } catch (error) {
@@ -383,7 +384,7 @@ export default function App() {
             const ang = s.angle + Math.PI + (Math.random() - 0.5) * 0.4;
             const spd = 60 + Math.random() * 90;
             particlesRef.current.push({
-              x: s.x + Math.sin(s.angle) * 15, y: s.y + Math.cos(s.angle) * 15,
+              x: s.x - Math.sin(s.angle) * 15, y: s.y + Math.cos(s.angle) * 15,
               vx: Math.sin(ang) * spd + s.vx * 0.3, vy: -Math.cos(ang) * spd + s.vy * 0.3,
               life: 1, decay: 1.5 + Math.random() * 1.5, sz: 1.5 + Math.random() * 3
             });
