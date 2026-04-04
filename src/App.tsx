@@ -158,6 +158,8 @@ export default function App() {
   const [showShop, setShowShop] = useState(false);
   const [shopViewShip, setShopViewShip] = useState<ShipType>(selectedShip);
   const [exploreScore, setExploreScore] = useState(0);
+  const [leaderboardCollapsed, setLeaderboardCollapsed] = useState(window.innerWidth < 1024);
+  const [missionsCollapsed, setMissionsCollapsed] = useState(window.innerWidth < 1024);
   const [user, setUser] = useState<User | null>(null);
   const [guestId, setGuestId] = useState<string | null>(localStorage.getItem('guestId'));
   const [isAuthReady, setIsAuthReady] = useState(false);
@@ -174,12 +176,15 @@ export default function App() {
   const tutorialTimerRef = useRef<number | null>(null);
   const hoverTimerRef = useRef<number | null>(null);
 
+  const [isLandscape, setIsLandscape] = useState(window.innerWidth > window.innerHeight && window.innerHeight < 600);
+
   useEffect(() => {
     const handleResize = () => {
       if (canvasRef.current) {
         canvasRef.current.width = window.innerWidth;
         canvasRef.current.height = window.innerHeight;
       }
+      setIsLandscape(window.innerWidth > window.innerHeight && window.innerHeight < 600);
     };
     window.addEventListener('resize', handleResize);
     handleResize();
@@ -1042,70 +1047,65 @@ export default function App() {
         {/* HUD */}
         {gameState !== 'menu' && (
           <div className="absolute inset-0 pointer-events-none p-2 sm:p-4">
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 pointer-events-auto z-50 flex flex-col items-center gap-2">
+            <div className={`absolute ${isLandscape ? 'top-2 right-1/2 translate-x-1/2' : 'top-4 left-1/2 -translate-x-1/2'} pointer-events-auto z-50 flex flex-col items-center gap-2`}>
               <button 
                 onClick={exitToMenu} 
-                className="px-4 py-2 border border-[#00ffcc44] bg-black/50 text-[#00ffcc88] hover:bg-[#00ffcc] hover:text-black text-xs tracking-widest transition-colors backdrop-blur-sm"
+                className="px-4 py-1 sm:py-2 border border-[#00ffcc44] bg-black/50 text-[#00ffcc88] hover:bg-[#00ffcc] hover:text-black text-[10px] sm:text-xs tracking-widest transition-colors backdrop-blur-sm"
               >
                 ABORT MISSION
               </button>
-              {mode === 'fun' && <div className="text-[10px] bg-[#ffcc00] text-black px-2 font-bold tracking-widest">FUN MODE</div>}
-              {mode === 'training' && <div className="text-[10px] bg-[#44ff44] text-black px-2 font-bold tracking-widest">TRAINING MODE</div>}
+              {mode === 'fun' && <div className="text-[8px] sm:text-[10px] bg-[#ffcc00] text-black px-2 font-bold tracking-widest">FUN MODE</div>}
+              {mode === 'training' && <div className="text-[8px] sm:text-[10px] bg-[#44ff44] text-black px-2 font-bold tracking-widest">TRAINING MODE</div>}
             </div>
 
             {/* HUD (Mobile Optimized) */}
-            <div className="absolute top-4 left-4 flex flex-col gap-1 sm:gap-2 pointer-events-none z-40">
-              <div className="bg-black/80 border border-[#00ffcc33] p-2 sm:p-3 min-w-[120px] sm:min-w-[160px] backdrop-blur-sm">
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1 sm:block">
+            <div className={`absolute ${isLandscape ? 'top-2 left-2' : 'top-4 left-4'} flex flex-col gap-1 sm:gap-2 pointer-events-none z-40`}>
+              <div className="bg-black/80 border border-[#00ffcc33] p-1.5 sm:p-3 min-w-[100px] sm:min-w-[160px] backdrop-blur-sm">
+                <div className={`grid ${isLandscape ? 'grid-cols-3 gap-x-4' : 'grid-cols-2 gap-x-4 gap-y-1 sm:block'}`}>
                   <div>
-                    <div className="text-[7px] sm:text-[9px] uppercase tracking-widest opacity-50">Altitude</div>
-                    <div className="text-xs sm:text-lg font-bold">{stats.alt.toFixed(0)} m</div>
+                    <div className="text-[6px] sm:text-[9px] uppercase tracking-widest opacity-50">Alt</div>
+                    <div className="text-[10px] sm:text-lg font-bold">{stats.alt.toFixed(0)}m</div>
                   </div>
-                  <div className="sm:mt-2">
-                    <div className="text-[7px] sm:text-[9px] uppercase tracking-widest opacity-50">V-Speed</div>
-                    <div className={`text-xs sm:text-lg font-bold ${stats.vy >= DIFF_SETTINGS[difficulty].SAFE_VY * getCalculatedStats(selectedShip, shipUpgrades[selectedShip]).hull ? 'text-red-500' : 'text-[#00ffcc]'}`}>
-                      {stats.vy.toFixed(2)} m/s
+                  <div>
+                    <div className="text-[6px] sm:text-[9px] uppercase tracking-widest opacity-50">V-Spd</div>
+                    <div className={`text-[10px] sm:text-lg font-bold ${stats.vy >= DIFF_SETTINGS[difficulty].SAFE_VY * getCalculatedStats(selectedShip, shipUpgrades[selectedShip]).hull ? 'text-red-500' : 'text-[#00ffcc]'}`}>
+                      {stats.vy.toFixed(1)}
                     </div>
                   </div>
-                  <div className="sm:mt-2">
-                    <div className="text-[7px] sm:text-[9px] uppercase tracking-widest opacity-50">H-Speed</div>
-                    <div className={`text-xs sm:text-lg font-bold ${stats.vx >= DIFF_SETTINGS[difficulty].SAFE_VX * getCalculatedStats(selectedShip, shipUpgrades[selectedShip]).hull ? 'text-orange-500' : 'text-[#00ffcc]'}`}>
-                      {stats.vx.toFixed(2)} m/s
+                  <div>
+                    <div className="text-[6px] sm:text-[9px] uppercase tracking-widest opacity-50">H-Spd</div>
+                    <div className={`text-[10px] sm:text-lg font-bold ${stats.vx >= DIFF_SETTINGS[difficulty].SAFE_VX * getCalculatedStats(selectedShip, shipUpgrades[selectedShip]).hull ? 'text-orange-500' : 'text-[#00ffcc]'}`}>
+                      {stats.vx.toFixed(1)}
                     </div>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="absolute top-4 right-4 bg-black/80 border border-[#00ffcc33] p-2 sm:p-3 min-w-[120px] sm:min-w-[160px] text-right backdrop-blur-sm z-40">
-              <div className="flex flex-col items-end gap-1 sm:gap-2">
-                <button 
-                  onClick={() => setGameState('menu')}
-                  className="pointer-events-auto bg-red-500/20 border border-red-500/40 text-red-500 px-2 py-0.5 sm:px-3 sm:py-1 text-[7px] sm:text-[10px] uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all mb-1"
-                >
-                  Abort
-                </button>
-                
-                <div className="w-full">
-                  <div className="text-[7px] sm:text-[9px] uppercase tracking-widest opacity-50">Fuel</div>
-                  <div className={`text-xs sm:text-lg font-bold ${stats.fuel < 20 ? 'text-red-500' : 'text-[#00ffcc]'}`}>
+            <div className={`absolute ${isLandscape ? 'top-2 right-2' : 'top-4 right-4'} bg-black/80 border border-[#00ffcc33] p-1.5 sm:p-3 min-w-[100px] sm:min-w-[160px] text-right backdrop-blur-sm z-40`}>
+              <div className={`flex ${isLandscape ? 'flex-row items-center gap-4' : 'flex-col items-end gap-1 sm:gap-2'}`}>
+                <div className={isLandscape ? 'min-w-[60px]' : 'w-full'}>
+                  <div className="text-[6px] sm:text-[9px] uppercase tracking-widest opacity-50">Fuel</div>
+                  <div className={`text-[10px] sm:text-lg font-bold ${stats.fuel < 20 ? 'text-red-500' : 'text-[#00ffcc]'}`}>
                     {stats.fuel.toFixed(0)}%
                   </div>
-                  <div className="w-full h-1 bg-[#00ffcc11] mt-1 border border-[#00ffcc33]">
-                    <div className="h-full bg-gradient-to-r from-red-500 to-[#00ffcc]" style={{ width: `${stats.fuel}%` }} />
-                  </div>
+                  {!isLandscape && (
+                    <div className="w-full h-1 bg-[#00ffcc11] mt-1 border border-[#00ffcc33]">
+                      <div className="h-full bg-gradient-to-r from-red-500 to-[#00ffcc]" style={{ width: `${stats.fuel}%` }} />
+                    </div>
+                  )}
                 </div>
                 
-                <div className="mt-1 sm:mt-2">
-                  <div className="text-[7px] sm:text-[9px] uppercase tracking-widest opacity-50">Tilt</div>
-                  <div className={`text-xs sm:text-lg font-bold ${stats.tilt > DIFF_SETTINGS[difficulty].SAFE_DEG ? 'text-red-500' : 'text-[#00ffcc]'}`}>
+                <div>
+                  <div className="text-[6px] sm:text-[9px] uppercase tracking-widest opacity-50">Tilt</div>
+                  <div className={`text-[10px] sm:text-lg font-bold ${stats.tilt > DIFF_SETTINGS[difficulty].SAFE_DEG ? 'text-red-500' : 'text-[#00ffcc]'}`}>
                     {stats.tilt.toFixed(1)}°
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="absolute bottom-4 left-4 text-[8px] sm:text-[10px] opacity-40">
+            <div className={`absolute ${isLandscape ? 'bottom-2 left-2' : 'bottom-4 left-4'} text-[6px] sm:text-[10px] opacity-40`}>
               SAFE: VY &lt; {(DIFF_SETTINGS[difficulty].SAFE_VY * getCalculatedStats(selectedShip, shipUpgrades[selectedShip]).hull).toFixed(1)} · VX &lt; {(DIFF_SETTINGS[difficulty].SAFE_VX * getCalculatedStats(selectedShip, shipUpgrades[selectedShip]).hull).toFixed(1)} · TILT &lt; {(DIFF_SETTINGS[difficulty].SAFE_DEG * getCalculatedStats(selectedShip, shipUpgrades[selectedShip]).hull).toFixed(1)}°
             </div>
 
@@ -1116,24 +1116,24 @@ export default function App() {
               </div>
             )}
 
-            <div className="absolute bottom-4 right-4 flex flex-col gap-2 pointer-events-none sm:bottom-auto sm:top-36">
-              <div className="bg-black/60 border border-[#00ffcc22] p-2 backdrop-blur-sm min-w-[140px] sm:min-w-[160px]">
-                <div className="text-[7px] tracking-[0.2em] text-[#00ffcc66] mb-1.5 uppercase flex justify-between items-center">
+            <div className={`absolute ${isLandscape ? 'bottom-2 right-2' : 'bottom-4 right-4'} flex flex-col gap-2 pointer-events-none sm:bottom-auto sm:top-36`}>
+              <div className={`bg-black/60 border border-[#00ffcc22] p-1.5 sm:p-2 backdrop-blur-sm ${isLandscape ? 'min-w-[100px]' : 'min-w-[140px] sm:min-w-[160px]'}`}>
+                <div className="text-[6px] sm:text-[7px] tracking-[0.2em] text-[#00ffcc66] mb-1 uppercase flex justify-between items-center">
                   <span>Missions</span>
                   <span className="text-[#ffcc00]">{completedMissions.length}/3</span>
                 </div>
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <div className={`w-1.5 h-1.5 border border-[#00ffcc44] flex-shrink-0 ${completedMissions.includes('precision') ? 'bg-[#00ffcc]' : ''}`}></div>
-                    <div className={`text-[8px] font-bold tracking-wider ${completedMissions.includes('precision') ? 'text-[#00ffcc66] line-through' : 'text-white'}`}>PRECISION</div>
+                <div className={`space-y-0.5 sm:space-y-1 ${isLandscape ? 'flex flex-col' : ''}`}>
+                  <div className="flex items-center gap-1.5 sm:gap-2">
+                    <div className={`w-1 h-1 sm:w-1.5 h-1.5 border border-[#00ffcc44] flex-shrink-0 ${completedMissions.includes('precision') ? 'bg-[#00ffcc]' : ''}`}></div>
+                    <div className={`text-[7px] sm:text-[8px] font-bold tracking-wider ${completedMissions.includes('precision') ? 'text-[#00ffcc66] line-through' : 'text-white'}`}>PRECISION</div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <div className={`w-1.5 h-1.5 border border-[#00ffcc44] flex-shrink-0 ${completedMissions.includes('fuel') ? 'bg-[#00ffcc]' : ''}`}></div>
-                    <div className={`text-[8px] font-bold tracking-wider ${completedMissions.includes('fuel') ? 'text-[#00ffcc66] line-through' : 'text-white'}`}>FUEL CONSERV.</div>
+                  <div className="flex items-center gap-1.5 sm:gap-2">
+                    <div className={`w-1 h-1 sm:w-1.5 h-1.5 border border-[#00ffcc44] flex-shrink-0 ${completedMissions.includes('fuel') ? 'bg-[#00ffcc]' : ''}`}></div>
+                    <div className={`text-[7px] sm:text-[8px] font-bold tracking-wider ${completedMissions.includes('fuel') ? 'text-[#00ffcc66] line-through' : 'text-white'}`}>FUEL</div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <div className={`w-1.5 h-1.5 border border-[#00ffcc44] flex-shrink-0 ${completedMissions.includes('explore') ? 'bg-[#00ffcc]' : ''}`}></div>
-                    <div className={`text-[8px] font-bold tracking-wider ${completedMissions.includes('explore') ? 'text-[#00ffcc66] line-through' : 'text-white'}`}>LONG HAUL</div>
+                  <div className="flex items-center gap-1.5 sm:gap-2">
+                    <div className={`w-1 h-1 sm:w-1.5 h-1.5 border border-[#00ffcc44] flex-shrink-0 ${completedMissions.includes('explore') ? 'bg-[#00ffcc]' : ''}`}></div>
+                    <div className={`text-[7px] sm:text-[8px] font-bold tracking-wider ${completedMissions.includes('explore') ? 'text-[#00ffcc66] line-through' : 'text-white'}`}>EXPLORE</div>
                   </div>
                 </div>
               </div>
@@ -1141,24 +1141,24 @@ export default function App() {
 
             {/* Touch Controls (Ergonomic Mobile Layout) */}
             {gameState === 'playing' && (
-              <div className="absolute bottom-6 left-0 right-0 flex justify-between px-8 sm:hidden pointer-events-none z-50">
+              <div className={`absolute ${isLandscape ? 'bottom-4 inset-x-0' : 'bottom-6 inset-x-0'} flex justify-between px-4 sm:px-8 lg:hidden pointer-events-none z-50`}>
                 {/* Left Side: Rotation */}
-                <div className="flex gap-4 pointer-events-auto">
+                <div className="flex gap-2 sm:gap-4 pointer-events-auto">
                   <button 
                     onPointerDown={() => handleTouch('arrowleft', true)}
                     onPointerUp={() => handleTouch('arrowleft', false)}
                     onPointerLeave={() => handleTouch('arrowleft', false)}
-                    className="w-16 h-16 bg-black/40 border-2 border-[#00ffcc]/30 rounded-2xl flex items-center justify-center active:bg-[#00ffcc] active:scale-95 transition-all backdrop-blur-md"
+                    className={`${isLandscape ? 'w-20 h-20' : 'w-16 h-16'} bg-black/40 border-2 border-[#00ffcc]/30 rounded-2xl flex items-center justify-center active:bg-[#00ffcc] active:scale-95 transition-all backdrop-blur-md`}
                   >
-                    <ChevronLeft className="w-8 h-8 text-[#00ffcc]" />
+                    <ChevronLeft className={`${isLandscape ? 'w-10 h-10' : 'w-8 h-8'} text-[#00ffcc]`} />
                   </button>
                   <button 
                     onPointerDown={() => handleTouch('arrowright', true)}
                     onPointerUp={() => handleTouch('arrowright', false)}
                     onPointerLeave={() => handleTouch('arrowright', false)}
-                    className="w-16 h-16 bg-black/40 border-2 border-[#00ffcc]/30 rounded-2xl flex items-center justify-center active:bg-[#00ffcc] active:scale-95 transition-all backdrop-blur-md"
+                    className={`${isLandscape ? 'w-20 h-20' : 'w-16 h-16'} bg-black/40 border-2 border-[#00ffcc]/30 rounded-2xl flex items-center justify-center active:bg-[#00ffcc] active:scale-95 transition-all backdrop-blur-md`}
                   >
-                    <ChevronRight className="w-8 h-8 text-[#00ffcc]" />
+                    <ChevronRight className={`${isLandscape ? 'w-10 h-10' : 'w-8 h-8'} text-[#00ffcc]`} />
                   </button>
                 </div>
                 
@@ -1168,9 +1168,9 @@ export default function App() {
                     onPointerDown={() => handleTouch('arrowup', true)}
                     onPointerUp={() => handleTouch('arrowup', false)}
                     onPointerLeave={() => handleTouch('arrowup', false)}
-                    className="w-20 h-20 bg-black/40 border-2 border-[#ffcc00]/30 rounded-full flex items-center justify-center active:bg-[#ffcc00] active:scale-95 transition-all backdrop-blur-md shadow-[0_0_20px_rgba(255,204,0,0.1)]"
+                    className={`${isLandscape ? 'w-24 h-24' : 'w-20 h-20'} bg-black/40 border-2 border-[#ffcc00]/30 rounded-full flex items-center justify-center active:bg-[#ffcc00] active:scale-95 transition-all backdrop-blur-md shadow-[0_0_20px_rgba(255,204,0,0.1)]`}
                   >
-                    <Zap className="w-10 h-10 text-[#ffcc00]" />
+                    <Zap className={`${isLandscape ? 'w-12 h-12' : 'w-10 h-10'} text-[#ffcc00]`} />
                   </button>
                 </div>
               </div>
@@ -1241,29 +1241,31 @@ export default function App() {
         )}
 
         {(gameState === 'menu' || (result && !isTutorialActive)) && (
-          <div className="absolute inset-0 bg-black/95 flex flex-col items-center justify-center p-4 sm:p-8 z-[100]">
-            <div className="relative mt-2 sm:mt-8 mb-4 sm:mb-8 flex flex-col items-center shrink-0">
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120%] h-[160%] bg-[#00ffcc] opacity-20 blur-[30px] sm:blur-[60px] rounded-full pointer-events-none"></div>
-              <h1 
-                className="text-[28px] sm:text-[52px] font-black text-white tracking-[4px] sm:tracking-[8px] mb-[2px] sm:mb-[6px] relative z-10 ml-[4px] sm:ml-[8px]"
-                style={{ textShadow: '0 0 15px #00ffcc, 0 0 30px #00ffcc55', fontFamily: "'Orbitron', sans-serif" }}
-              >
-                LUNAR
-              </h1>
-              <p className="text-[8px] sm:text-sm md:text-base tracking-[0.8em] sm:tracking-[1.2em] text-[#00ffcc] relative z-10 ml-[0.8em] sm:ml-[1.2em] font-medium drop-shadow-[0_0_8px_rgba(0,255,204,0.8)]">
-                DESCENT
-              </p>
-            </div>
+          <div className="absolute inset-0 bg-black/95 flex flex-col items-center justify-center p-2 sm:p-4 z-[100] overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+            {!showShop && (
+              <div className={`relative ${isLandscape ? 'mt-0 mb-0' : 'mt-1 sm:mt-8 mb-2 sm:mb-8'} flex flex-col items-center shrink-0`}>
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120%] h-[160%] bg-[#00ffcc] opacity-20 blur-[30px] sm:blur-[60px] rounded-full pointer-events-none"></div>
+                <h1 
+                  className={`${isLandscape ? 'text-[20px]' : 'text-[28px] sm:text-[52px]'} font-black text-white tracking-[4px] sm:tracking-[8px] mb-[1px] sm:mb-[6px] relative z-10 ml-[4px] sm:ml-[8px]`}
+                  style={{ textShadow: '0 0 15px #00ffcc, 0 0 30px #00ffcc55', fontFamily: "'Orbitron', sans-serif" }}
+                >
+                  LUNAR
+                </h1>
+                <p className={`${isLandscape ? 'text-[6px]' : 'text-[8px] sm:text-sm md:text-base'} tracking-[0.8em] sm:tracking-[1.2em] text-[#00ffcc] relative z-10 ml-[0.8em] sm:ml-[1.2em] font-medium drop-shadow-[0_0_8px_rgba(0,255,204,0.8)]`}>
+                  DESCENT
+                </p>
+              </div>
+            )}
 
             {gameState === 'menu' && !user && !guestId ? (
-              <div className="flex flex-col items-center gap-6 mb-8 z-10 w-full max-w-xs">
-                <div className="text-xs tracking-widest text-[#00ffcc88]">PILOT AUTHENTICATION REQUIRED</div>
+              <div className={`flex flex-col items-center ${isLandscape ? 'gap-0.5 mb-1' : 'gap-6 mb-8'} z-10 w-full max-w-xs`}>
+                <div className={`text-[8px] sm:text-xs tracking-widest text-[#00ffcc88] ${isLandscape ? 'mb-0.5' : 'mb-4'}`}>PILOT AUTHENTICATION REQUIRED</div>
                 
                 <button
                   onClick={() => signInWithPopup(auth, provider).catch(err => console.error(err))}
-                  className="w-full px-8 py-3 border border-[#00ffcc] text-[#00ffcc] hover:bg-[#00ffcc] hover:text-black transition-all font-bold tracking-widest flex items-center justify-center gap-2"
+                  className={`w-full px-8 py-1 sm:py-3 border border-[#00ffcc] text-[#00ffcc] hover:bg-[#00ffcc] hover:text-black transition-all font-bold tracking-widest flex items-center justify-center gap-2 ${isLandscape ? 'text-[10px]' : 'text-xs'}`}
                 >
-                  <svg className="w-5 h-5" viewBox="0 0 24 24">
+                  <svg className="w-3 h-3 sm:w-5 h-5" viewBox="0 0 24 24">
                     <path
                       fill="currentColor"
                       d="M21.35 11.1h-9.17v2.73h6.51c-.33 1.56-1.74 2.73-3.78 2.73-2.4 0-4.35-1.95-4.35-4.35s1.95-4.35 4.35-4.35c1.08 0 2.07.39 2.84 1.04l2.05-2.05C18.41 5.51 16.55 4.35 14.35 4.35 9.93 4.35 6.35 7.93 6.35 12.35s3.58 8 8 8c4.17 0 7.35-2.94 7.35-7.35 0-.65-.06-1.29-.17-1.9z"
@@ -1274,17 +1276,17 @@ export default function App() {
 
                 <div className="flex items-center w-full gap-4">
                   <div className="h-px bg-[#00ffcc22] flex-1"></div>
-                  <div className="text-[10px] text-[#00ffcc44] tracking-widest">OR</div>
+                  <div className="text-[8px] text-[#00ffcc44] tracking-widest">OR</div>
                   <div className="h-px bg-[#00ffcc22] flex-1"></div>
                 </div>
 
-                <div className="w-full flex flex-col gap-3">
+                <div className="w-full flex flex-col gap-2">
                   <div className="flex gap-2">
                     <input
                       type="text"
                       placeholder="ENTER CALLSIGN"
                       maxLength={15}
-                      className="flex-1 bg-black/50 border border-[#00ffcc44] text-[#00ffcc] px-4 py-2 text-xs outline-none focus:border-[#00ffcc] transition-all uppercase tracking-widest"
+                      className="flex-1 bg-black/50 border border-[#00ffcc44] text-[#00ffcc] px-4 py-2 text-[10px] outline-none focus:border-[#00ffcc] transition-all uppercase tracking-widest"
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                           const val = (e.target as HTMLInputElement).value.trim();
@@ -1310,20 +1312,19 @@ export default function App() {
                           setGuestId(id);
                         }
                       }}
-                      className="px-4 py-2 border border-[#00ffcc44] text-[#00ffcc88] hover:border-[#00ffcc] hover:text-[#00ffcc] text-[10px] tracking-widest transition-all"
+                      className="px-3 py-2 border border-[#00ffcc44] text-[#00ffcc88] hover:border-[#00ffcc] hover:text-[#00ffcc] text-[9px] tracking-widest transition-all"
                     >
                       GO
                     </button>
                   </div>
-                  <div className="text-[9px] text-[#00ffcc44] text-center italic">OR PLAY AS GUEST WITHOUT GMAIL</div>
                 </div>
               </div>
             ) : result ? (
-              <div className="mb-8 w-full max-w-md">
-                <h2 className={`text-4xl font-bold mb-2 ${result.ok ? 'text-green-400' : 'text-red-500'}`}>
+              <div className={`${isLandscape ? 'mb-2 scale-[0.8] origin-center' : 'mb-8'} w-full max-w-md`}>
+                <h2 className={`${isLandscape ? 'text-2xl mb-1' : 'text-4xl mb-2'} font-bold ${result.ok ? 'text-green-400' : 'text-red-500'}`}>
                   {result.ok ? '✓ TOUCHDOWN' : '✗ CRASHED'}
                 </h2>
-                <p className="text-sm text-gray-400 leading-relaxed mb-6">
+                <p className={`${isLandscape ? 'text-xs mb-2' : 'text-sm mb-6'} text-gray-400 leading-relaxed`}>
                   {result.ok ? (
                     <>
                       Mission Score: <span className="text-white font-bold">{result.score}</span><br />
@@ -1336,20 +1337,20 @@ export default function App() {
                 </p>
 
                 {result.ok && !scoreSubmitted && mode === 'classic' && (
-                  <div className="flex flex-col items-center gap-3 bg-[#00ffcc11] p-4 border border-[#00ffcc33] mb-6">
+                  <div className={`flex flex-col items-center gap-2 bg-[#00ffcc11] ${isLandscape ? 'p-2 mb-2' : 'p-4 mb-6'} border border-[#00ffcc33]`}>
                     <div className="text-xs tracking-widest text-[#00ffcc]">TRANSMITTING SCORE...</div>
                   </div>
                 )}
                 {scoreSubmitted && mode === 'classic' && (
-                  <div className="text-green-400 text-sm tracking-widest mb-6">SCORE TRANSMITTED</div>
+                  <div className={`text-green-400 text-sm tracking-widest ${isLandscape ? 'mb-2' : 'mb-6'}`}>SCORE TRANSMITTED</div>
                 )}
               </div>
             ) : showShop ? (
-              <div className="flex flex-col md:flex-row w-full max-w-5xl h-[80vh] bg-black/80 border border-[#00ffcc44] text-left">
+              <div className={`flex ${isLandscape ? 'flex-row' : 'flex-col md:flex-row'} w-full max-w-5xl flex-1 min-h-0 bg-black/80 border border-[#00ffcc44] text-left`}>
                 {/* Left Panel: Ship List */}
-                <div className="w-full md:w-1/3 border-r border-[#00ffcc44] overflow-y-auto p-4 flex flex-col gap-2">
-                  <div className="text-xl text-[#00ffcc] mb-2 tracking-widest font-bold text-center">SHIPYARD</div>
-                  <div className="text-sm text-[#00ffcc88] mb-4 tracking-widest text-center">CREDITS: <span className="text-[#ffcc00] font-bold">{credits}</span></div>
+                <div className={`${isLandscape ? 'w-1/4' : 'w-full md:w-1/3'} border-r border-[#00ffcc44] overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] p-2 sm:p-4 flex flex-col gap-1 sm:gap-2`}>
+                  <div className={`${isLandscape ? 'text-sm' : 'text-xl'} text-[#00ffcc] mb-1 sm:mb-2 tracking-widest font-bold text-center`}>SHIPYARD</div>
+                  <div className={`${isLandscape ? 'text-[8px]' : 'text-sm'} text-[#00ffcc88] mb-2 sm:mb-4 tracking-widest text-center`}>CREDITS: <span className="text-[#ffcc00] font-bold">{credits}</span></div>
                   
                   {(Object.entries(SHIPS) as [ShipType, ShipDef][]).map(([type, ship]) => {
                     const isUnlocked = unlockedShips.includes(type);
@@ -1360,27 +1361,27 @@ export default function App() {
                       <button
                         key={type}
                         onClick={() => setShopViewShip(type)}
-                        className={`p-3 text-left border transition-all ${isViewing ? 'border-[#00ffcc] bg-[#00ffcc11]' : 'border-[#00ffcc44] hover:border-[#00ffcc88] bg-black/50'} ${!isUnlocked && 'opacity-60'}`}
+                        className={`p-1.5 sm:p-3 text-left border transition-all ${isViewing ? 'border-[#00ffcc] bg-[#00ffcc11]' : 'border-[#00ffcc44] hover:border-[#00ffcc88] bg-black/50'} ${!isUnlocked && 'opacity-60'}`}
                       >
-                        <div className="flex justify-between items-center mb-1">
-                          <span className="font-bold tracking-widest" style={{ color: ship.color }}>{ship.name}</span>
-                          {isSelected && <span className="text-[9px] bg-[#00ffcc] text-black px-1">ACTIVE</span>}
+                        <div className="flex justify-between items-center mb-0.5 sm:mb-1">
+                          <span className={`${isLandscape ? 'text-[10px]' : 'text-sm sm:text-base'} font-bold tracking-widest`} style={{ color: ship.color }}>{ship.name}</span>
+                          {isSelected && <span className="text-[7px] sm:text-[9px] bg-[#00ffcc] text-black px-1">ACTIVE</span>}
                         </div>
-                        <div className="text-[10px] text-[#00ffcc88]">{isUnlocked ? 'UNLOCKED' : `${ship.price} CR`}</div>
+                        <div className={`${isLandscape ? 'text-[8px]' : 'text-[10px]'} text-[#00ffcc88]`}>{isUnlocked ? 'UNLOCKED' : `${ship.price} CR`}</div>
                       </button>
                     );
                   })}
                   
                   <button
                     onClick={() => setShowShop(false)}
-                    className="mt-4 px-4 py-3 border border-[#00ffcc44] text-[#00ffcc88] hover:border-[#00ffcc] hover:text-[#00ffcc] transition-all tracking-widest text-xs text-center"
+                    className="mt-2 sm:mt-4 px-2 py-1.5 sm:px-4 sm:py-3 border border-[#00ffcc44] text-[#00ffcc88] hover:border-[#00ffcc] hover:text-[#00ffcc] transition-all tracking-widest text-[8px] sm:text-xs text-center"
                   >
                     BACK TO MENU
                   </button>
                 </div>
 
                 {/* Right Panel: Ship Details & Upgrades */}
-                <div className="w-full md:w-2/3 p-6 flex flex-col overflow-y-auto">
+                <div className={`${isLandscape ? 'w-3/4' : 'w-full md:w-2/3'} p-3 sm:p-6 flex flex-col overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]`}>
                   {(() => {
                     const viewDef = SHIPS[shopViewShip];
                     const isUnlocked = unlockedShips.includes(shopViewShip);
@@ -1396,10 +1397,10 @@ export default function App() {
                       const canAffordUpg = credits >= cost;
 
                       return (
-                        <div key={key} className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-3 border border-[#00ffcc22] bg-black/30 mb-2">
-                          <div className="mb-2 sm:mb-0">
-                            <div className="text-sm font-bold text-[#00ffcc] tracking-widest">{label} <span className="text-[10px] text-[#00ffcc66]">LVL {currentLevel}/{viewDef.maxUpgrades}</span></div>
-                            <div className="text-xs text-[#00ffcc88]">
+                        <div key={key} className={`flex flex-col sm:flex-row justify-between items-start sm:items-center ${isLandscape ? 'p-1.5 mb-1' : 'p-3 mb-2'} border border-[#00ffcc22] bg-black/30`}>
+                          <div className={`${isLandscape ? 'mb-1' : 'mb-2'} sm:mb-0`}>
+                            <div className={`${isLandscape ? 'text-[10px]' : 'text-sm'} font-bold text-[#00ffcc] tracking-widest`}>{label} <span className="text-[8px] sm:text-[10px] text-[#00ffcc66]">LVL {currentLevel}/{viewDef.maxUpgrades}</span></div>
+                            <div className={`${isLandscape ? 'text-[8px]' : 'text-xs'} text-[#00ffcc88]`}>
                               {currentVal} {!isMax && <span className="text-[#00ffcc]">→ {nextVal}</span>}
                             </div>
                           </div>
@@ -1420,7 +1421,7 @@ export default function App() {
                                 }
                               }}
                               disabled={isMax || !canAffordUpg}
-                              className={`px-4 py-2 text-xs tracking-widest border ${isMax ? 'border-gray-600 text-gray-500' : canAffordUpg ? 'border-[#ffcc00] text-[#ffcc00] hover:bg-[#ffcc0022]' : 'border-red-900 text-red-700'}`}
+                              className={`${isLandscape ? 'px-2 py-1 text-[8px]' : 'px-4 py-2 text-xs'} tracking-widest border ${isMax ? 'border-gray-600 text-gray-500' : canAffordUpg ? 'border-[#ffcc00] text-[#ffcc00] hover:bg-[#ffcc0022]' : 'border-red-900 text-red-700'}`}
                             >
                               {isMax ? 'MAXED' : `UPGRADE (${cost} CR)`}
                             </button>
@@ -1431,10 +1432,10 @@ export default function App() {
 
                     return (
                       <>
-                        <div className="flex justify-between items-start mb-4">
+                        <div className={`flex justify-between items-start ${isLandscape ? 'mb-2' : 'mb-4'}`}>
                           <div>
-                            <h2 className="text-3xl font-bold tracking-widest mb-1" style={{ color: viewDef.color }}>{viewDef.name}</h2>
-                            <p className="text-sm text-[#00ffcc88]">{viewDef.desc}</p>
+                            <h2 className={`${isLandscape ? 'text-xl' : 'text-3xl'} font-bold tracking-widest mb-0.5 sm:mb-1`} style={{ color: viewDef.color }}>{viewDef.name}</h2>
+                            <p className={`${isLandscape ? 'text-[10px]' : 'text-sm'} text-[#00ffcc88]`}>{viewDef.desc}</p>
                           </div>
                           {isUnlocked ? (
                             <button
@@ -1443,7 +1444,7 @@ export default function App() {
                                 localStorage.setItem('selectedShip', shopViewShip);
                               }}
                               disabled={isSelected}
-                              className={`px-6 py-2 text-sm tracking-widest border font-bold ${isSelected ? 'bg-[#00ffcc] text-black border-[#00ffcc]' : 'border-[#00ffcc] text-[#00ffcc] hover:bg-[#00ffcc22]'}`}
+                              className={`${isLandscape ? 'px-3 py-1.5 text-[10px]' : 'px-6 py-2 text-sm'} tracking-widest border font-bold ${isSelected ? 'bg-[#00ffcc] text-black border-[#00ffcc]' : 'border-[#00ffcc] text-[#00ffcc] hover:bg-[#00ffcc22]'}`}
                             >
                               {isSelected ? 'ACTIVE' : 'SELECT'}
                             </button>
@@ -1464,7 +1465,7 @@ export default function App() {
                                 }
                               }}
                               disabled={!canAffordShip}
-                              className={`px-6 py-2 text-sm tracking-widest border font-bold ${canAffordShip ? 'border-[#ffcc00] text-[#ffcc00] hover:bg-[#ffcc0022]' : 'border-red-900 text-red-700'}`}
+                              className={`${isLandscape ? 'px-3 py-1.5 text-[10px]' : 'px-6 py-2 text-sm'} tracking-widest border font-bold ${canAffordShip ? 'border-[#ffcc00] text-[#ffcc00] hover:bg-[#ffcc0022]' : 'border-red-900 text-red-700'}`}
                             >
                               BUY FOR {viewDef.price} CR
                             </button>
@@ -1506,47 +1507,51 @@ export default function App() {
                 </div>
               </div>
             ) : (
-              <div className="flex flex-col items-center w-full max-w-md">
-                <div className="flex items-center justify-between w-full mb-2">
-                  {isEditingName ? (
-                    <div className="flex items-center gap-2 flex-1 mr-4">
-                      <input
-                        type="text"
-                        maxLength={20}
-                        value={editNameInput}
-                        onChange={(e) => setEditNameInput(e.target.value)}
-                        className="bg-black border border-[#00ffcc] text-[#00ffcc] px-2 py-1 text-sm outline-none uppercase flex-1"
-                        autoFocus
-                      />
-                      <button
-                        onClick={() => {
-                          if (editNameInput.trim()) {
-                            const newName = editNameInput.trim().toUpperCase();
-                            setRegisteredName(newName);
-                            localStorage.setItem('pilotName', newName);
-                            setIsEditingName(false);
-                          }
-                        }}
-                        className="text-[10px] text-[#00ffcc] hover:bg-[#00ffcc] hover:text-black border border-[#00ffcc] px-2 py-1 tracking-widest"
-                      >
-                        SAVE
-                      </button>
-                    </div>
+              <div className={`${isLandscape ? 'relative w-full max-w-xl flex flex-col items-center' : 'w-full flex flex-col items-center'}`}>
+                <div className={`flex flex-col items-center ${isLandscape ? 'mb-1' : 'mb-2 sm:mb-4'}`}>
+                  {isProfileLoaded ? (
+                    isEditingName ? (
+                      <div className="flex items-center gap-2 mb-1">
+                        <input
+                          type="text"
+                          maxLength={20}
+                          value={editNameInput}
+                          onChange={(e) => setEditNameInput(e.target.value)}
+                          className="bg-black border border-[#00ffcc] text-[#00ffcc] px-2 py-0.5 text-xs outline-none uppercase flex-1"
+                          autoFocus
+                        />
+                        <button
+                          onClick={() => {
+                            if (editNameInput.trim()) {
+                              const newName = editNameInput.trim().toUpperCase();
+                              setRegisteredName(newName);
+                              localStorage.setItem('pilotName', newName);
+                              setIsEditingName(false);
+                            }
+                          }}
+                          className="text-[8px] text-[#00ffcc] hover:bg-[#00ffcc] hover:text-black border border-[#00ffcc] px-2 py-0.5 tracking-widest"
+                        >
+                          SAVE
+                        </button>
+                      </div>
+                    ) : (
+                      <div className={`text-[#00ffcc] tracking-widest flex items-center gap-2 ${isLandscape ? 'text-[10px]' : 'text-sm'}`}>
+                        ACTIVE PILOT: <span className="font-bold text-white">{registeredName}</span>
+                        {isAdmin && <span className="text-[8px] bg-red-600 text-white px-1 font-bold">ADMIN</span>}
+                        <button
+                          onClick={() => {
+                            setEditNameInput(registeredName);
+                            setIsEditingName(true);
+                          }}
+                          className="text-[9px] text-[#00ffcc88] hover:text-[#00ffcc] px-1"
+                          title="Edit Callsign"
+                        >
+                          ✎
+                        </button>
+                      </div>
+                    )
                   ) : (
-                    <div className="text-sm text-[#00ffcc] tracking-widest flex items-center gap-2">
-                      ACTIVE PILOT: <span className="font-bold text-white">{registeredName}</span>
-                      {isAdmin && <span className="text-[9px] bg-red-600 text-white px-1 font-bold">ADMIN</span>}
-                      <button
-                        onClick={() => {
-                          setEditNameInput(registeredName);
-                          setIsEditingName(true);
-                        }}
-                        className="text-[10px] text-[#00ffcc88] hover:text-[#00ffcc] px-1"
-                        title="Edit Callsign"
-                      >
-                        ✎
-                      </button>
-                    </div>
+                    <div className="h-4 w-24 bg-[#00ffcc11] animate-pulse rounded"></div>
                   )}
                   {!isEditingName && (
                     <button 
@@ -1560,52 +1565,52 @@ export default function App() {
                         setIsProfileLoaded(false);
                         setRegisteredName('');
                       }}
-                      className="text-[10px] text-red-500 hover:text-red-400 border border-red-500/30 hover:border-red-500 px-2 py-1 tracking-widest"
+                      className="text-[8px] text-red-500 hover:text-red-400 border border-red-500/30 hover:border-red-500 px-1.5 py-0.5 tracking-widest mt-0.5"
                     >
                       SIGN OUT
                     </button>
                   )}
                 </div>
-                <div className="text-xs text-[#00ffcc88] mb-6 tracking-widest">CREDITS: <span className="text-[#ffcc00] font-bold">{credits}</span></div>
+                <div className={`text-[9px] text-[#00ffcc88] ${isLandscape ? 'mb-1' : 'mb-2 sm:mb-6'} tracking-widest uppercase`}>CREDITS: <span className="text-[#ffcc00] font-bold">{credits}</span></div>
                 
-                <div className="grid grid-cols-2 gap-2 mb-4 w-full">
+                <div className={`grid grid-cols-2 ${isLandscape ? 'gap-1 mb-1' : 'gap-1.5 sm:gap-2 mb-2 sm:mb-4'} w-full max-w-xs sm:max-w-md`}>
                   <button
                     onClick={() => { setMode('classic'); vibrate(5); }}
-                    className={`py-2 sm:py-4 text-[10px] sm:text-sm tracking-widest border flex flex-col items-center gap-1 sm:gap-2 transition-all ${mode === 'classic' ? 'bg-[#00ffcc] text-black border-[#00ffcc] shadow-[0_0_15px_rgba(0,255,204,0.3)]' : 'border-[#00ffcc44] text-[#00ffcc88] hover:border-[#00ffcc]'}`}
+                    className={`${isLandscape ? 'py-1 text-[8px]' : 'py-1 sm:py-4 text-[7px] sm:text-sm'} tracking-widest border flex flex-col items-center gap-0.5 transition-all ${mode === 'classic' ? 'bg-[#00ffcc] text-black border-[#00ffcc] shadow-[0_0_10px_rgba(0,255,204,0.3)]' : 'border-[#00ffcc44] text-[#00ffcc88] hover:border-[#00ffcc]'}`}
                   >
-                    <Rocket className="w-4 h-4 sm:w-5 h-5" />
+                    <Rocket className={isLandscape ? 'w-3 h-3' : 'w-2 h-2 sm:w-5 sm:h-5'} />
                     CLASSIC
                   </button>
                   <button
                     onClick={() => { setMode('explore'); vibrate(5); }}
-                    className={`py-2 sm:py-4 text-[10px] sm:text-sm tracking-widest border flex flex-col items-center gap-1 sm:gap-2 transition-all ${mode === 'explore' ? 'bg-[#00ffcc] text-black border-[#00ffcc] shadow-[0_0_15px_rgba(0,255,204,0.3)]' : 'border-[#00ffcc44] text-[#00ffcc88] hover:border-[#00ffcc]'}`}
+                    className={`${isLandscape ? 'py-1 text-[8px]' : 'py-1 sm:py-4 text-[7px] sm:text-sm'} tracking-widest border flex flex-col items-center gap-0.5 transition-all ${mode === 'explore' ? 'bg-[#00ffcc] text-black border-[#00ffcc] shadow-[0_0_10px_rgba(0,255,204,0.3)]' : 'border-[#00ffcc44] text-[#00ffcc88] hover:border-[#00ffcc]'}`}
                   >
-                    <Target className="w-4 h-4 sm:w-5 h-5" />
+                    <Target className={isLandscape ? 'w-3 h-3' : 'w-2 h-2 sm:w-5 sm:h-5'} />
                     EXPLORE
                   </button>
                   <button
                     onClick={() => { setMode('fun'); vibrate(5); }}
-                    className={`py-2 sm:py-4 text-[10px] sm:text-sm tracking-widest border flex flex-col items-center gap-1 sm:gap-2 transition-all ${mode === 'fun' ? 'bg-[#ffcc00] text-black border-[#ffcc00] shadow-[0_0_15px_rgba(255,204,0,0.3)]' : 'border-[#ffcc0044] text-[#ffcc0088] hover:border-[#ffcc00]'}`}
+                    className={`${isLandscape ? 'py-1 text-[8px]' : 'py-1 sm:py-4 text-[7px] sm:text-sm'} tracking-widest border flex flex-col items-center gap-0.5 transition-all ${mode === 'fun' ? 'bg-[#ffcc00] text-black border-[#ffcc00] shadow-[0_0_10px_rgba(255,204,0,0.3)]' : 'border-[#ffcc0044] text-[#ffcc0088] hover:border-[#ffcc00]'}`}
                   >
-                    <Play className="w-4 h-4 sm:w-5 h-5" />
+                    <Play className={isLandscape ? 'w-3 h-3' : 'w-2 h-2 sm:w-5 sm:h-5'} />
                     FUN
                   </button>
                   <button
                     onClick={() => { setMode('training'); vibrate(5); }}
-                    className={`py-2 sm:py-4 text-[10px] sm:text-sm tracking-widest border flex flex-col items-center gap-1 sm:gap-2 transition-all ${mode === 'training' ? 'bg-[#44ff44] text-black border-[#44ff44] shadow-[0_0_15px_rgba(68,255,68,0.3)]' : 'border-[#44ff4444] text-[#44ff4488] hover:border-[#44ff44]'}`}
+                    className={`${isLandscape ? 'py-1 text-[8px]' : 'py-1 sm:py-4 text-[7px] sm:text-sm'} tracking-widest border flex flex-col items-center gap-0.5 transition-all ${mode === 'training' ? 'bg-[#44ff44] text-black border-[#44ff44] shadow-[0_0_10px_rgba(68,255,68,0.3)]' : 'border-[#44ff4444] text-[#44ff4488] hover:border-[#44ff44]'}`}
                   >
-                    <Info className="w-4 h-4 sm:w-5 h-5" />
+                    <Info className={isLandscape ? 'w-3 h-3' : 'w-2 h-2 sm:w-5 sm:h-5'} />
                     TRAINING
                   </button>
                 </div>
 
                 {mode === 'classic' && (
-                  <div className="flex gap-2 sm:gap-4 mb-4 w-full justify-center">
+                  <div className={`flex gap-1 sm:gap-4 ${isLandscape ? 'mb-1' : 'mb-2 sm:mb-4'} w-full justify-center`}>
                     {(['easy', 'medium', 'hard'] as Difficulty[]).map(d => (
                       <button
                         key={d}
                         onClick={() => setDifficulty(d)}
-                        className={`px-3 py-1 sm:px-4 sm:py-2 text-[10px] sm:text-xs tracking-widest border ${difficulty === d ? 'bg-[#00ffcc] text-black border-[#00ffcc]' : 'border-[#00ffcc44] text-[#00ffcc88] hover:border-[#00ffcc]'}`}
+                        className={`${isLandscape ? 'px-2 py-0.5 text-[8px]' : 'px-2 py-0.5 sm:px-4 sm:py-2 text-[8px] sm:text-xs'} tracking-widest border ${difficulty === d ? 'bg-[#00ffcc] text-black border-[#00ffcc]' : 'border-[#00ffcc44] text-[#00ffcc88] hover:border-[#00ffcc]'}`}
                       >
                         {d.toUpperCase()}
                       </button>
@@ -1630,100 +1635,22 @@ export default function App() {
                     Infinite fuel. Very forgiving landing conditions. Learn the basics without the pressure.
                   </div>
                 )}
-
-            {/* Missions Panel (Menu) */}
-            {gameState === 'menu' && (
-              <div className="sm:absolute sm:top-4 sm:right-4 w-full max-w-md sm:w-64 bg-black/80 border border-[#00ffcc22] p-2 sm:p-4 backdrop-blur-md shadow-[0_0_30px_rgba(0,255,204,0.1)] z-50 mb-4 sm:mb-0">
-                <div 
-                  className="text-[8px] sm:text-[10px] tracking-[0.3em] text-[#00ffcc] mb-1 sm:mb-3 uppercase flex justify-between items-center border-b border-[#00ffcc22] pb-1 sm:pb-2 cursor-pointer sm:cursor-default"
-                  onClick={() => setShowMissionsMobile(!showMissionsMobile)}
-                >
-                  <span className="flex items-center gap-2">
-                    <span className="w-1 h-1 sm:w-1.5 h-1.5 bg-[#00ffcc] animate-pulse"></span>
-                    PILOT MISSIONS
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[#ffcc00] font-bold">{completedMissions.length}/3</span>
-                    <span className="sm:hidden text-[#00ffcc]">{showMissionsMobile ? '▲' : '▼'}</span>
-                  </div>
-                </div>
-                <div className={`${showMissionsMobile ? 'grid' : 'hidden'} sm:grid grid-cols-1 gap-1 sm:block sm:space-y-3`}>
-                  <div className="flex items-start gap-2 sm:gap-3">
-                    <div className={`w-2 h-2 sm:w-4 h-4 border border-[#00ffcc44] mt-0.5 flex-shrink-0 flex items-center justify-center ${completedMissions.includes('precision') ? 'bg-[#00ffcc22] border-[#00ffcc]' : ''}`}>
-                      {completedMissions.includes('precision') && <span className="text-[#00ffcc] text-[7px] sm:text-[10px]">✓</span>}
-                    </div>
-                    <div>
-                      <div className={`text-[8px] sm:text-[10px] font-bold tracking-widest ${completedMissions.includes('precision') ? 'text-[#00ffcc44] line-through' : 'text-white'}`}>PRECISION LANDING</div>
-                      <div className="text-[6px] sm:text-[8px] text-[#00ffcc66] mt-0.5">Speed &lt; 1m/s</div>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-2 sm:gap-3">
-                    <div className={`w-2 h-2 sm:w-4 h-4 border border-[#00ffcc44] mt-0.5 flex-shrink-0 flex items-center justify-center ${completedMissions.includes('fuel') ? 'bg-[#00ffcc22] border-[#00ffcc]' : ''}`}>
-                      {completedMissions.includes('fuel') && <span className="text-[#00ffcc] text-[7px] sm:text-[10px]">✓</span>}
-                    </div>
-                    <div>
-                      <div className={`text-[8px] sm:text-[10px] font-bold tracking-widest ${completedMissions.includes('fuel') ? 'text-[#00ffcc44] line-through' : 'text-white'}`}>FUEL CONSERVATION</div>
-                      <div className="text-[6px] sm:text-[8px] text-[#00ffcc66] mt-0.5">Fuel &gt; 80%</div>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-2 sm:gap-3">
-                    <div className={`w-2 h-2 sm:w-4 h-4 border border-[#00ffcc44] mt-0.5 flex-shrink-0 flex items-center justify-center ${completedMissions.includes('explore') ? 'bg-[#00ffcc22] border-[#00ffcc]' : ''}`}>
-                      {completedMissions.includes('explore') && <span className="text-[#00ffcc] text-[7px] sm:text-[10px]">✓</span>}
-                    </div>
-                    <div>
-                      <div className={`text-[8px] sm:text-[10px] font-bold tracking-widest ${completedMissions.includes('explore') ? 'text-[#00ffcc44] line-through' : 'text-white'}`}>LONG HAUL</div>
-                      <div className="text-[6px] sm:text-[8px] text-[#00ffcc66] mt-0.5">5 pads in Explore</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-                {/* Mobile/Small Screen Missions (Menu) - REMOVED, now using absolute corner panel */}
-
-                {leaderboard.length > 0 && mode === 'classic' && (
-                  <div className="hidden sm:block w-full bg-black/50 border border-[#00ffcc22] p-4 mb-4 text-left">
-                    <div className="text-xs tracking-widest text-[#00ffcc88] mb-3 text-center">TOP PILOTS</div>
-                    <div className="space-y-2">
-                      {leaderboard.map((entry, i) => (
-                        <div key={entry.id} className="flex justify-between items-center text-sm">
-                          <div className="flex gap-3">
-                            <span className="text-[#00ffcc44] w-4">{i + 1}.</span>
-                            <span className="text-white">{entry.playerName}</span>
-                            <span className="text-[10px] text-[#00ffcc66] self-center">[{entry.difficulty}]</span>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <span className="font-bold text-[#00ffcc]">{entry.score}</span>
-                            {isAdmin && (
-                              <button
-                                onClick={() => entry.id && deleteLeaderboardEntry(entry.id)}
-                                className="text-red-500 hover:text-red-400 text-[10px] border border-red-500/30 px-1"
-                              >
-                                DEL
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
             )}
 
             {registeredName && !showShop && (
-              <div className="flex flex-col items-center gap-2 mt-2 w-full">
-                <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full max-w-xs sm:max-w-none justify-center px-4 sm:px-0">
+              <div className={`flex flex-col items-center gap-1 ${isLandscape ? 'mt-0.5' : 'mt-1 sm:mt-2'} w-full z-20 relative`}>
+                <div className={`flex flex-col sm:flex-row gap-1.5 sm:gap-3 w-full max-w-xs sm:max-w-none justify-center px-4 sm:px-0`}>
                   <button
                     onClick={() => { startGame(); vibrate(15); }}
-                    className="w-full sm:w-auto px-6 sm:px-12 py-2 sm:py-5 border-2 border-[#00ffcc] text-[#00ffcc] hover:bg-[#00ffcc] hover:text-black transition-all duration-200 tracking-widest font-bold text-[10px] sm:text-base shadow-[0_0_20px_rgba(0,255,204,0.2)] active:scale-95"
+                    className={`w-full sm:w-auto ${isLandscape ? 'px-3 py-1.5 text-[10px]' : 'px-3 sm:px-12 py-1.5 sm:py-4 text-[8px] sm:text-base'} border-2 border-[#00ffcc] text-[#00ffcc] hover:bg-[#00ffcc] hover:text-black transition-all duration-200 tracking-widest font-bold shadow-[0_0_10px_rgba(0,255,204,0.2)] active:scale-95`}
                   >
                     {gameState === 'menu' ? 'INITIATE DESCENT' : 'RETRY MISSION'}
                   </button>
                   {gameState === 'menu' && (
                     <button
                       onClick={() => { setShowShop(true); vibrate(10); }}
-                      className="w-full sm:w-auto px-6 sm:px-12 py-2 sm:py-5 border-2 border-[#ffcc00] text-[#ffcc00] hover:bg-[#ffcc00] hover:text-black transition-all duration-200 tracking-widest font-bold text-[10px] sm:text-base shadow-[0_0_20px_rgba(255,204,0,0.2)] active:scale-95"
+                      className={`w-full sm:w-auto ${isLandscape ? 'px-3 py-1.5 text-[10px]' : 'px-3 sm:px-12 py-1.5 sm:py-4 text-[8px] sm:text-base'} border-2 border-[#ffcc00] text-[#ffcc00] hover:bg-[#ffcc00] hover:text-black transition-all duration-200 tracking-widest font-bold shadow-[0_0_10px_rgba(255,204,0,0.2)] active:scale-95`}
                     >
                       SHIPYARD
                     </button>
@@ -1731,7 +1658,7 @@ export default function App() {
                   {gameState !== 'menu' && (
                     <button
                       onClick={() => { exitToMenu(); vibrate(10); }}
-                      className="w-full sm:w-auto px-8 sm:px-12 py-2 sm:py-5 border-2 border-[#00ffcc44] text-[#00ffcc88] hover:border-[#00ffcc] hover:text-[#00ffcc] transition-all duration-200 tracking-widest font-bold text-[10px] sm:text-base active:scale-95"
+                      className={`w-full sm:w-auto px-4 sm:px-12 py-1.5 sm:py-4 border-2 border-[#00ffcc44] text-[#00ffcc88] hover:border-[#00ffcc] hover:text-[#00ffcc] transition-all duration-200 tracking-widest font-bold ${isLandscape ? 'text-[10px]' : 'text-[8px] sm:text-base'} active:scale-95`}
                     >
                       MENU
                     </button>
@@ -1740,16 +1667,84 @@ export default function App() {
                 {gameState === 'menu' && (
                   <button
                     onClick={startTutorial}
-                    className="text-[8px] sm:text-[10px] text-[#00ffcc66] hover:text-[#00ffcc] tracking-[0.2em] sm:tracking-[0.3em] transition-all"
+                    className={`${isLandscape ? 'text-[9px]' : 'text-[7px] sm:text-[10px]'} text-[#00ffcc66] hover:text-[#00ffcc] tracking-[0.1em] sm:tracking-[0.3em] transition-all mt-1`}
                   >
                     — REPLAY TRAINING SIMULATION —
                   </button>
                 )}
               </div>
             )}
+
+            {/* Side Panels: Leaderboard (Left) and Missions (Right) */}
+            {gameState === 'menu' && !showShop && (
+              <>
+                {/* Leaderboard - Far Left */}
+                {leaderboard.length > 0 && mode === 'classic' && (
+                  <div className={`absolute left-0 top-1/2 -translate-y-1/2 transition-transform duration-300 z-[110] flex ${leaderboardCollapsed ? '-translate-x-[calc(100%-24px)]' : 'translate-x-0'}`}>
+                    <div className="w-32 sm:w-48 md:w-64 bg-black/60 border border-[#00ffcc22] border-l-0 p-2 sm:p-5 text-left backdrop-blur-md shadow-[0_0_40px_rgba(0,255,204,0.05)]">
+                      <div className="text-[8px] sm:text-[10px] md:text-xs tracking-[0.2em] md:tracking-[0.3em] text-[#00ffcc] mb-2 md:mb-4 text-center uppercase border-b border-[#00ffcc22] pb-2 md:pb-3 font-bold">TOP PILOTS</div>
+                      <div className="space-y-1 sm:space-y-2 md:space-y-4">
+                        {leaderboard.slice(0, 10).map((entry, i) => (
+                          <div key={entry.id} className="flex justify-between items-center text-[8px] sm:text-[10px] md:text-sm">
+                            <div className="flex gap-1 sm:gap-2 md:gap-3">
+                              <span className="text-[#00ffcc44] w-3 md:w-4">{i + 1}.</span>
+                              <span className="text-white truncate max-w-[50px] sm:max-w-[80px] md:max-w-[110px]">{entry.playerName}</span>
+                            </div>
+                            <span className="font-bold text-[#00ffcc]">{entry.score}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => setLeaderboardCollapsed(!leaderboardCollapsed)}
+                      className="bg-black/60 border border-[#00ffcc22] border-l-0 h-12 w-6 flex items-center justify-center text-[#00ffcc] hover:bg-[#00ffcc22] backdrop-blur-md"
+                    >
+                      {leaderboardCollapsed ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
+                    </button>
+                  </div>
+                )}
+
+                {/* Missions - Far Right */}
+                <div className={`absolute right-0 top-1/2 -translate-y-1/2 transition-transform duration-300 z-[110] flex ${missionsCollapsed ? 'translate-x-[calc(100%-24px)]' : 'translate-x-0'}`}>
+                  <button 
+                    onClick={() => setMissionsCollapsed(!missionsCollapsed)}
+                    className="bg-black/60 border border-[#00ffcc22] border-r-0 h-12 w-6 flex items-center justify-center text-[#00ffcc] hover:bg-[#00ffcc22] backdrop-blur-md"
+                  >
+                    {missionsCollapsed ? <ChevronLeft size={12} /> : <ChevronRight size={12} />}
+                  </button>
+                  <div className="w-32 sm:w-48 md:w-64 bg-black/60 border border-[#00ffcc22] border-r-0 p-2 sm:p-5 backdrop-blur-md shadow-[0_0_40px_rgba(0,255,204,0.05)]">
+                    <div className="text-[8px] sm:text-[10px] md:text-xs tracking-[0.2em] md:tracking-[0.3em] text-[#00ffcc] mb-2 md:mb-4 uppercase flex justify-between items-center border-b border-[#00ffcc22] pb-2 md:pb-3 font-bold">
+                      <span className="flex items-center gap-1 md:gap-2">
+                        <span className="w-1.5 h-1.5 md:w-2 md:h-2 bg-[#00ffcc] animate-pulse"></span>
+                        <span className="hidden sm:inline">MISSIONS</span>
+                        <span className="sm:hidden">MISS.</span>
+                      </span>
+                      <span className="text-[#ffcc00]">{completedMissions.length}/3</span>
+                    </div>
+                    <div className="space-y-2 sm:space-y-4 md:space-y-6">
+                      {[
+                        { id: 'precision', label: 'PRECISION', desc: '< 5m/s' },
+                        { id: 'fuel', label: 'FUEL', desc: '> 50%' },
+                        { id: 'explore', label: 'EXPLORE', desc: '> 2000m' }
+                      ].map(m => (
+                        <div key={m.id} className="flex items-start gap-2 sm:gap-3 md:gap-4">
+                          <div className={`w-3 h-3 sm:w-4 h-4 md:w-5 md:h-5 border border-[#00ffcc44] mt-0.5 flex-shrink-0 flex items-center justify-center ${completedMissions.includes(m.id) ? 'bg-[#00ffcc22] border-[#00ffcc]' : ''}`}>
+                            {completedMissions.includes(m.id) && <span className="text-[#00ffcc] text-[8px] sm:text-[10px] md:text-[12px]">✓</span>}
+                          </div>
+                          <div>
+                            <div className={`text-[7px] sm:text-[9px] md:text-[11px] font-bold tracking-widest ${completedMissions.includes(m.id) ? 'text-[#00ffcc44] line-through' : 'text-white'}`}>{m.label}</div>
+                            <div className="text-[5px] sm:text-[7px] md:text-[8px] text-[#00ffcc44] tracking-tight">{m.desc}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         )}
       </div>
     </div>
-  );
+);
 }
