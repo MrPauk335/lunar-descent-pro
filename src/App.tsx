@@ -6,14 +6,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { collection, query, orderBy, limit, getDocs, serverTimestamp, doc, setDoc, getDoc, increment, deleteDoc } from 'firebase/firestore';
 import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
+import { ChevronLeft, ChevronRight, Zap, RefreshCw, XCircle, Trophy, Settings, Play, Info, LogOut, User as UserIcon, ShieldAlert, Rocket, Target, Fuel } from 'lucide-react';
 import { db, auth, provider } from './firebase';
 
 // --- Constants ---
 const G = 1.62; // Moon gravity
 const FUEL_BURN = 15;
 const WORLD_W = 2700;
-const CANVAS_W = 900;
-const CANVAS_H = 600;
 
 const DIFF_SETTINGS = {
   easy: { SAFE_VY: 3.0, SAFE_VX: 2.0, SAFE_DEG: 15, OBSTACLES: 2 },
@@ -22,7 +21,7 @@ const DIFF_SETTINGS = {
 };
 
 type Difficulty = 'easy' | 'medium' | 'hard';
-type GameMode = 'classic' | 'explore';
+type GameMode = 'classic' | 'explore' | 'fun' | 'training';
 type ShipType = 'pioneer' | 'sparrow' | 'tortoise' | 'frog' | 'mantis' | 'goliath' | 'viper' | 'nomad' | 'eclipse' | 'apollo';
 
 interface ShipDef {
@@ -144,6 +143,10 @@ export default function App() {
   const [scoreSubmitted, setScoreSubmitted] = useState(false);
   const [mode, setMode] = useState<GameMode>('classic');
   const [credits, setCredits] = useState(() => parseInt(localStorage.getItem('credits') || '0'));
+  const [completedMissions, setCompletedMissions] = useState<string[]>(() => {
+    const saved = localStorage.getItem('completedMissions');
+    return saved ? JSON.parse(saved) : [];
+  });
   const [unlockedShips, setUnlockedShips] = useState<ShipType[]>(() => {
     const saved = JSON.parse(localStorage.getItem('unlockedShips') || '["pioneer"]');
     return saved.map((s: string) => s === 'classic' ? 'pioneer' : s);
@@ -156,11 +159,32 @@ export default function App() {
   const [shopViewShip, setShopViewShip] = useState<ShipType>(selectedShip);
   const [exploreScore, setExploreScore] = useState(0);
   const [user, setUser] = useState<User | null>(null);
+  const [guestId, setGuestId] = useState<string | null>(localStorage.getItem('guestId'));
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isProfileLoaded, setIsProfileLoaded] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
   const [editNameInput, setEditNameInput] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
+  const [showTutorialPrompt, setShowTutorialPrompt] = useState(false);
+  const [isTutorialActive, setIsTutorialActive] = useState(false);
+  const [tutorialStep, setTutorialStep] = useState(0);
+  const [missionNotify, setMissionNotify] = useState<string | null>(null);
+  const [showMissionsMobile, setShowMissionsMobile] = useState(false);
+  const tutorialWaypointRef = useRef<{ x: number, y: number, hit: boolean } | null>(null);
+  const tutorialTimerRef = useRef<number | null>(null);
+  const hoverTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (canvasRef.current) {
+        canvasRef.current.width = window.innerWidth;
+        canvasRef.current.height = window.innerHeight;
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    handleResize();
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const [shipUpgrades, setShipUpgrades] = useState<Record<string, ShipUpgrades>>(() => {
     const saved = localStorage.getItem('shipUpgrades');
@@ -175,10 +199,12 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
-      if (currentUser) {
-        setIsAdmin(currentUser.email === 'meganeirosin@gmail.com');
+      const effectiveUid = currentUser?.uid || guestId;
+      
+      if (effectiveUid) {
+        setIsAdmin(currentUser?.email === 'meganeirosin@gmail.com');
         // Load profile from Firestore
-        const profileRef = doc(db, 'players', currentUser.uid);
+        const profileRef = doc(db, 'players', effectiveUid);
         const profileSnap = await getDoc(profileRef);
         if (profileSnap.exists()) {
           const data = profileSnap.data();
@@ -186,35 +212,46 @@ export default function App() {
             setRegisteredName(data.displayName);
             localStorage.setItem('pilotName', data.displayName);
           } else {
-            setRegisteredName(currentUser.displayName || 'PILOT_' + currentUser.uid.substring(0, 5));
+            setRegisteredName(currentUser?.displayName || 'PILOT_' + effectiveUid.substring(0, 5));
           }
           if (data.credits !== undefined) setCredits(data.credits);
           if (data.unlockedShips) setUnlockedShips(data.unlockedShips);
           if (data.selectedShip) setSelectedShip(data.selectedShip);
           if (data.shipUpgrades) setShipUpgrades(data.shipUpgrades);
+          
+          // If user hasn't seen tutorial, show prompt
+          if (!data.hasSeenTutorial) {
+            setShowTutorialPrompt(true);
+          }
         } else {
           // Initialize profile
-          const initialName = currentUser.displayName || 'PILOT_' + currentUser.uid.substring(0, 5);
+          const initialName = currentUser?.displayName || 'PILOT_' + effectiveUid.substring(0, 5);
           setRegisteredName(initialName);
           await setDoc(profileRef, {
             credits: credits,
             unlockedShips: unlockedShips,
             selectedShip: selectedShip,
             shipUpgrades: shipUpgrades,
-            displayName: initialName
+            displayName: initialName,
+            hasSeenTutorial: false
           });
+          setShowTutorialPrompt(true);
         }
         setIsProfileLoaded(true);
+      } else {
+        setIsProfileLoaded(false);
+        setIsAdmin(false);
       }
       setIsAuthReady(true);
     });
     return () => unsubscribe();
-  }, []);
+  }, [guestId]);
 
   // Save profile changes to Firestore
   useEffect(() => {
-    if (user && isAuthReady && isProfileLoaded && registeredName) {
-      const profileRef = doc(db, 'players', user.uid);
+    const effectiveUid = user?.uid || guestId;
+    if (effectiveUid && isAuthReady && isProfileLoaded && registeredName) {
+      const profileRef = doc(db, 'players', effectiveUid);
       setDoc(profileRef, {
         credits,
         unlockedShips,
@@ -223,7 +260,7 @@ export default function App() {
         displayName: registeredName
       }, { merge: true }).catch(err => console.error('Failed to save profile:', err));
     }
-  }, [credits, unlockedShips, selectedShip, shipUpgrades, registeredName, user, isAuthReady, isProfileLoaded]);
+  }, [credits, unlockedShips, selectedShip, shipUpgrades, registeredName, user, guestId, isAuthReady, isProfileLoaded]);
 
   function getCalculatedStats(type: ShipType, upgrades: ShipUpgrades) {
     const base = SHIPS[type];
@@ -271,7 +308,7 @@ export default function App() {
   function mkStars(n: number) {
     return Array.from({ length: n }, () => ({
       x: Math.random() * WORLD_W,
-      y: Math.random() * CANVAS_H,
+      y: Math.random() * window.innerHeight,
       r: Math.random() * 1.4 + 0.2,
       b: Math.random() * 0.6 + 0.4,
       t: Math.random() * Math.PI * 2,
@@ -282,9 +319,10 @@ export default function App() {
     const isExp = m === 'explore';
     const N = isExp ? 2048 : 512;
     const W = isExp ? 15000 : WORLD_W;
+    const H = window.innerHeight;
     const ht = new Float32Array(N);
-    ht[0] = CANVAS_H * 0.58;
-    ht[N - 1] = CANVAS_H * 0.60;
+    ht[0] = H * 0.58;
+    ht[N - 1] = H * 0.60;
 
     function subdiv(lo: number, hi: number, amp: number) {
       if (hi - lo <= 1) return;
@@ -293,16 +331,16 @@ export default function App() {
       subdiv(lo, mid, amp * 0.6);
       subdiv(mid, hi, amp * 0.6);
     }
-    subdiv(0, N - 1, CANVAS_H * 0.52);
+    subdiv(0, N - 1, H * 0.52);
 
-    for (let i = 0; i < N; i++) ht[i] = Math.max(CANVAS_H * 0.2, Math.min(CANVAS_H * 0.9, ht[i]));
+    for (let i = 0; i < N; i++) ht[i] = Math.max(H * 0.2, Math.min(H * 0.9, ht[i]));
     for (let pass = 0; pass < 3; pass++) {
       for (let i = 1; i < N - 1; i++) ht[i] = (ht[i - 1] + 2 * ht[i] + ht[i + 1]) / 4;
     }
 
     const pads: Pad[] = [];
     const usedRanges: { s: number; e: number }[] = [];
-    const numPads = isExp ? 30 : 3;
+    const numPads = isExp ? 30 : (m === 'training' ? 8 : 3);
     for (let p = 0; p < numPads; p++) {
       for (let attempt = 0; attempt < 50; attempt++) {
         const pw = 15 + Math.floor(Math.random() * 12);
@@ -437,7 +475,7 @@ export default function App() {
     if (!registeredName || !result || !result.ok || scoreSubmitted) return;
     setIsSubmitting(true);
     try {
-      const docId = user ? user.uid : `${ipAddress.replace(/[^a-zA-Z0-9]/g, '_')}_${registeredName.toLowerCase()}`;
+      const docId = user ? user.uid : `anon_${registeredName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
       const playerDocRef = doc(db, 'leaderboard_v3', docId);
       await setDoc(playerDocRef, {
         playerName: registeredName,
@@ -471,7 +509,7 @@ export default function App() {
     particlesRef.current = [];
     sparksRef.current = [];
     debrisRef.current = [];
-    camXRef.current = shipRef.current.x - CANVAS_W / 2;
+    camXRef.current = shipRef.current.x - window.innerWidth / 2;
     lastTRef.current = performance.now();
     setGameState('playing');
     setResult(null);
@@ -512,8 +550,9 @@ export default function App() {
       const dt = Math.min((ts - lastTRef.current) / 1000, 0.05);
       lastTRef.current = ts;
 
-      const ctx = canvasRef.current?.getContext('2d');
-      if (!ctx) return;
+      const canvas = canvasRef.current;
+      const ctx = canvas?.getContext('2d');
+      if (!canvas || !ctx) return;
 
       // --- Physics ---
       if (gameState === 'playing') {
@@ -530,15 +569,17 @@ export default function App() {
         s.av *= Math.pow(0.85, dt * 60);
         s.angle += s.av * dt;
 
-        s.thrusting = !!thrust && s.fuel > 0;
+        s.thrusting = !!thrust && (mode === 'fun' || mode === 'training' || s.fuel > 0);
         if (s.thrusting) {
-          if (s.down && mode === 'explore') {
+          if (s.down && (mode === 'explore' || mode === 'fun' || mode === 'training')) {
             s.down = false;
             s.vy = -2;
           }
           s.vx += Math.sin(s.angle) * shipStats.thrust * dt;
           s.vy += -Math.cos(s.angle) * shipStats.thrust * dt;
-          s.fuel = Math.max(0, s.fuel - FUEL_BURN * dt);
+          if (mode !== 'fun' && mode !== 'training') {
+            s.fuel = Math.max(0, s.fuel - FUEL_BURN * dt);
+          }
           // Exhaust
           for (let i = 0; i < 3; i++) {
             const ang = s.angle + Math.PI + (Math.random() - 0.5) * 0.4;
@@ -551,7 +592,7 @@ export default function App() {
           }
         }
 
-        s.vy += G * dt;
+        s.vy += (mode === 'training' ? G * 0.6 : G) * dt;
         s.x += s.vx * dt;
         s.y += s.vy * dt;
 
@@ -596,9 +637,9 @@ export default function App() {
           const pad = padAt(contactX);
           const limits = DIFF_SETTINGS[difficulty];
           const hullMult = shipStats.hull;
-          const safeVy = limits.SAFE_VY * hullMult;
-          const safeVx = limits.SAFE_VX * hullMult;
-          const safeDeg = limits.SAFE_DEG * hullMult;
+          const safeVy = (mode === 'training' ? 10 : limits.SAFE_VY) * hullMult;
+          const safeVx = (mode === 'training' ? 8 : limits.SAFE_VX) * hullMult;
+          const safeDeg = (mode === 'training' ? 45 : limits.SAFE_DEG) * hullMult;
 
           // FREEZE STATS HERE
           setStats({
@@ -610,12 +651,26 @@ export default function App() {
           });
 
           if (pad && !hitObstacle && finalVy < safeVy && finalVx < safeVx && currentDeg < safeDeg) {
-            if (mode === 'explore') {
+            if (mode === 'explore' || mode === 'fun' || mode === 'training') {
               if (!pad.visited) {
                 pad.visited = true;
                 s.fuel = shipStats.fuel;
-                const pts = 500 * (difficulty === 'hard' ? 2 : difficulty === 'medium' ? 1.5 : 1);
+                let pts = 500 * (difficulty === 'hard' ? 2 : difficulty === 'medium' ? 1.5 : 1);
+                if (mode === 'fun') pts = 50; // Fun mode is for fun, not farming
                 setExploreScore(prev => prev + pts);
+                
+                // Check Explore Mission
+                if (mode === 'explore') {
+                  const visitedCount = terrainRef.current.pads.filter(p => p.visited).length;
+                  if (visitedCount >= 5 && !completedMissions.includes('explore')) {
+                    const next = [...completedMissions, 'explore'];
+                    setCompletedMissions(next);
+                    localStorage.setItem('completedMissions', JSON.stringify(next));
+                    setMissionNotify('LONG HAUL MISSION COMPLETED!');
+                    setTimeout(() => setMissionNotify(null), 4000);
+                  }
+                }
+
                 setCredits(prev => {
                   const nc = prev + Math.floor(pts / 10);
                   localStorage.setItem('credits', nc.toString());
@@ -636,14 +691,47 @@ export default function App() {
                 return nc;
               });
               setResult({ ok: true, reason: '', score });
+
+              // Check Missions
+              const newMissions = [...completedMissions];
+              let notified = false;
+              if (finalVy < 1 && finalVx < 1 && !completedMissions.includes('precision')) {
+                newMissions.push('precision');
+                setMissionNotify('PRECISION LANDING COMPLETED!');
+                notified = true;
+              }
+              if (s.fuel / shipStats.fuel > 0.8 && !completedMissions.includes('fuel')) {
+                newMissions.push('fuel');
+                if (!notified) setMissionNotify('FUEL CONSERVATION COMPLETED!');
+                notified = true;
+              }
+              if (newMissions.length > completedMissions.length) {
+                setCompletedMissions(newMissions);
+                localStorage.setItem('completedMissions', JSON.stringify(newMissions));
+                if (notified) setTimeout(() => setMissionNotify(null), 4000);
+              }
+            }
+          } else if (mode === 'fun') {
+            // Bounce logic
+            s.vx = -s.vx * 0.6;
+            s.vy = -s.vy * 0.6;
+            s.av += (Math.random() - 0.5) * 4;
+            s.y -= 5; // Push out
+            // Add some sparks
+            for (let i = 0; i < 10; i++) {
+              sparksRef.current.push({
+                x: contactX, y: s.y + 10,
+                vx: (Math.random() - 0.5) * 150, vy: -Math.random() * 150,
+                life: 0.8, decay: 1.5, sz: 1 + Math.random() * 3, col: '#00ffcc'
+              });
             }
           } else {
             s.dead = true;
             addExplosion(s.x, s.y);
             spawnDebris(s);
             setGameState('crashed');
-            if (mode === 'explore' && exploreScore > 0) {
-              setResult({ ok: true, reason: 'EXPLORATION ENDED', score: exploreScore });
+            if ((mode === 'explore' || mode === 'fun' || mode === 'training') && exploreScore > 0) {
+              setResult({ ok: true, reason: 'MISSION ENDED', score: exploreScore });
             } else {
               const why = hitObstacle ? 'HIT OBSTACLE' :
                 !pad ? 'MISSED LANDING PAD' :
@@ -656,10 +744,12 @@ export default function App() {
         }
 
         // Camera
-        const tx = s.x - CANVAS_W / 2;
+        const viewW = canvas.width;
+        const viewH = canvas.height;
+        const tx = s.x - viewW / 2;
         camXRef.current += (tx - camXRef.current) * 0.1;
         if (mode !== 'explore') {
-          camXRef.current = Math.max(0, Math.min(W - CANVAS_W, camXRef.current));
+          camXRef.current = Math.max(0, Math.min(W - viewW, camXRef.current));
         }
 
         // Update HUD during flight
@@ -675,24 +765,26 @@ export default function App() {
       }
 
       // --- Rendering ---
-      ctx.fillStyle = '#000008'; ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+      const viewW = canvas.width;
+      const viewH = canvas.height;
+      ctx.fillStyle = '#000008'; ctx.fillRect(0, 0, viewW, viewH);
 
       // Stars
       const W = terrainRef.current.width;
       starsRef.current.forEach(s => {
         const tw = 0.6 + 0.4 * Math.sin(ts * 0.0008 + s.t);
-        const sx = ((s.x - camXRef.current * 0.2) + W * 5) % CANVAS_W;
+        const sx = ((s.x - camXRef.current * 0.2) + W * 5) % viewW;
         ctx.beginPath(); ctx.arc(sx, s.y, s.r, 0, Math.PI * 2);
         ctx.fillStyle = `rgba(255,255,255,${s.b * tw})`; ctx.fill();
       });
 
       // Terrain
       ctx.save(); ctx.translate(-camXRef.current, 0);
-      const g = ctx.createLinearGradient(0, CANVAS_H * 0.3, 0, CANVAS_H);
+      const g = ctx.createLinearGradient(0, viewH * 0.3, 0, viewH);
       g.addColorStop(0, '#1a1a2e'); g.addColorStop(1, '#0a0a1a');
       ctx.beginPath(); ctx.moveTo(terrainRef.current.pts[0].x, terrainRef.current.pts[0].y);
       terrainRef.current.pts.forEach(p => ctx.lineTo(p.x, p.y));
-      ctx.lineTo(W, CANVAS_H + 50); ctx.lineTo(0, CANVAS_H + 50); ctx.closePath();
+      ctx.lineTo(W, viewH + 50); ctx.lineTo(0, viewH + 50); ctx.closePath();
       ctx.fillStyle = g; ctx.fill();
       ctx.strokeStyle = '#5555aa'; ctx.lineWidth = 2; ctx.stroke();
 
@@ -749,6 +841,69 @@ export default function App() {
         ctx.save(); ctx.translate(d.x - camXRef.current, d.y); ctx.rotate(d.angle); d.drawFn(ctx); ctx.restore();
       });
 
+      // Trajectory for training mode
+      if (mode === 'training' && gameState === 'playing' && !shipRef.current.dead && !shipRef.current.down) {
+        ctx.save();
+        ctx.translate(-camXRef.current, 0);
+        ctx.beginPath();
+        ctx.setLineDash([5, 5]);
+        ctx.strokeStyle = 'rgba(68, 255, 68, 0.6)';
+        let tx = shipRef.current.x;
+        let ty = shipRef.current.y;
+        let tvx = shipRef.current.vx;
+        let tvy = shipRef.current.vy;
+        ctx.moveTo(tx, ty);
+        for (let i = 0; i < 100; i++) {
+          tvy += G * 0.1;
+          tx += tvx * 0.1;
+          ty += tvy * 0.1;
+          ctx.lineTo(tx, ty);
+          if (ty > terrainYAt(tx)) break;
+        }
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Waypoint for tutorial
+      if (isTutorialActive && tutorialStep === 3 && tutorialWaypointRef.current && !tutorialWaypointRef.current.hit) {
+        const wp = tutorialWaypointRef.current;
+        ctx.save();
+        ctx.translate(-camXRef.current, 0);
+        ctx.beginPath();
+        ctx.arc(wp.x, wp.y, 40, 0, Math.PI * 2);
+        ctx.strokeStyle = '#00ffcc';
+        ctx.setLineDash([5, 5]);
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        
+        // Pulse effect
+        const pulse = Math.sin(Date.now() / 200) * 10;
+        ctx.beginPath();
+        ctx.arc(wp.x, wp.y, 30 + pulse, 0, Math.PI * 2);
+        ctx.globalAlpha = 0.3;
+        ctx.fillStyle = '#00ffcc';
+        ctx.fill();
+        
+        // Arrow pointing to waypoint if off-screen
+        const dx = wp.x - shipRef.current.x;
+        const dy = wp.y - shipRef.current.y;
+        if (Math.abs(dx) > canvas.width / 2 || Math.abs(dy) > canvas.height / 2) {
+          ctx.restore();
+          ctx.save();
+          const angle = Math.atan2(dy, dx);
+          ctx.translate(canvas.width / 2 + Math.cos(angle) * 100, canvas.height / 2 + Math.sin(angle) * 100);
+          ctx.rotate(angle);
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.lineTo(-15, -10);
+          ctx.lineTo(-15, 10);
+          ctx.closePath();
+          ctx.fillStyle = '#00ffcc';
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+
       // Ship
       if (!shipRef.current.dead) {
         const s = shipRef.current;
@@ -767,11 +922,96 @@ export default function App() {
         ctx.restore();
       }
 
+      // --- Tutorial Logic ---
+      if (isTutorialActive && gameState === 'playing') {
+        const s = shipRef.current;
+        
+        // Step 1: Thrust
+        if (tutorialStep === 1 && s.thrusting) {
+          if (!tutorialTimerRef.current) tutorialTimerRef.current = Date.now();
+          if (Date.now() - tutorialTimerRef.current > 1500) {
+            setTutorialStep(2);
+            tutorialTimerRef.current = null;
+            // Pre-set waypoint for step 3
+            tutorialWaypointRef.current = { x: s.x + 500, y: s.y - 300, hit: false };
+          }
+        } else if (tutorialStep === 2 && Math.abs(s.av) > 0.2) {
+          // Step 2: Rotate (Lowered threshold to 0.2)
+          if (!tutorialTimerRef.current) tutorialTimerRef.current = Date.now();
+          if (Date.now() - tutorialTimerRef.current > 1500) {
+            setTutorialStep(3);
+            tutorialTimerRef.current = null;
+          }
+        } else if (tutorialStep === 3 && tutorialWaypointRef.current && !tutorialWaypointRef.current.hit) {
+          // Step 3: Waypoint
+          const dist = Math.hypot(s.x - tutorialWaypointRef.current.x, s.y - tutorialWaypointRef.current.y);
+          if (dist < 60) {
+            tutorialWaypointRef.current.hit = true;
+            setTutorialStep(4);
+          }
+        } else if (tutorialStep === 4) {
+          // Step 4: Hover
+          const alt = terrainYAt(s.x) - s.y;
+          if (alt > 5 && alt < 40 && Math.abs(s.vy) < 3 && Math.abs(s.vx) < 5) {
+            if (!hoverTimerRef.current) hoverTimerRef.current = Date.now();
+            if (Date.now() - hoverTimerRef.current > 2500) {
+              setTutorialStep(5);
+              hoverTimerRef.current = null;
+            }
+          } else {
+            hoverTimerRef.current = null;
+          }
+        } else if (tutorialStep === 5 && s.down && !s.dead) {
+          // Step 5: Landing (using s.down which is set on successful landing)
+          setTutorialStep(6);
+        } else if (tutorialStep < 3) {
+          // Reset timer if condition not met (for thrust/rotate)
+          if (!s.thrusting && tutorialStep === 1) tutorialTimerRef.current = null;
+          if (Math.abs(s.av) <= 0.2 && tutorialStep === 2) tutorialTimerRef.current = null;
+        }
+      }
+
       frameId = requestAnimationFrame(loop);
     };
     frameId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(frameId);
-  }, [gameState]);
+  }, [gameState, isTutorialActive, tutorialStep]);
+
+  const startTutorial = () => {
+    setShowTutorialPrompt(false);
+    setIsTutorialActive(true);
+    setTutorialStep(1);
+    tutorialWaypointRef.current = null;
+    setMode('training');
+    setDifficulty('easy');
+    setGameState('playing');
+    terrainRef.current = mkTerrain('easy', 'training');
+    shipRef.current = mkShip(selectedShip, 'training');
+  };
+
+  const completeTutorial = async () => {
+    setIsTutorialActive(false);
+    setTutorialStep(0);
+    if (user) {
+      const profileRef = doc(db, 'players', user.uid);
+      await setDoc(profileRef, { hasSeenTutorial: true }, { merge: true });
+    }
+  };
+
+  useEffect(() => {
+    if (!isTutorialActive) return;
+    if (gameState === 'crashed') {
+      // Auto-restart tutorial step if crashed
+      setTimeout(() => {
+        setGameState('playing');
+        setResult(null);
+        shipRef.current = mkShip(selectedShip, 'training');
+        // Keep current tutorial step
+      }, 2000);
+    }
+  }, [gameState, isTutorialActive]);
+
+  // Tutorial logic moved to game loop for better responsiveness
 
   const exitToMenu = () => {
     setGameState('menu');
@@ -781,65 +1021,87 @@ export default function App() {
     shipRef.current = mkShip(selectedShip, mode);
   };
 
+  const vibrate = (ms: number) => {
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      navigator.vibrate(ms);
+    }
+  };
+
   const handleTouch = (key: string, isDown: boolean) => {
+    if (isDown) vibrate(10);
     keysRef.current[key] = isDown;
   };
 
   return (
-    <div className="flex items-center justify-center w-screen h-screen bg-black text-[#00ffcc] font-mono overflow-hidden">
+    <div className="flex items-center justify-center w-full h-screen bg-black text-[#00ffcc] font-mono overflow-hidden">
       <div 
-        className="relative border border-[#00ffcc22] shadow-2xl"
-        style={{ 
-          width: '100%', 
-          height: '100%', 
-          maxWidth: 'calc(100vh * 1.5)', 
-          maxHeight: 'calc(100vw * 0.6666)' 
-        }}
+        className="relative w-full h-full"
       >
-        <canvas ref={canvasRef} width={900} height={600} className="bg-[#000008] w-full h-full object-contain" />
+        <canvas ref={canvasRef} width={900} height={600} className="bg-[#000008] w-full h-full object-cover" />
 
         {/* HUD */}
         {gameState !== 'menu' && (
           <div className="absolute inset-0 pointer-events-none p-2 sm:p-4">
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 pointer-events-auto z-50">
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 pointer-events-auto z-50 flex flex-col items-center gap-2">
               <button 
                 onClick={exitToMenu} 
                 className="px-4 py-2 border border-[#00ffcc44] bg-black/50 text-[#00ffcc88] hover:bg-[#00ffcc] hover:text-black text-xs tracking-widest transition-colors backdrop-blur-sm"
               >
                 ABORT MISSION
               </button>
+              {mode === 'fun' && <div className="text-[10px] bg-[#ffcc00] text-black px-2 font-bold tracking-widest">FUN MODE</div>}
+              {mode === 'training' && <div className="text-[10px] bg-[#44ff44] text-black px-2 font-bold tracking-widest">TRAINING MODE</div>}
             </div>
 
-            <div className="absolute top-4 left-4 bg-black/80 border border-[#00ffcc33] p-2 sm:p-3 min-w-[120px] sm:min-w-[160px] backdrop-blur-sm">
-              <div className="text-[9px] uppercase tracking-widest opacity-50">Altitude</div>
-              <div className="text-lg font-bold">{stats.alt.toFixed(0)} m</div>
-              <div className="mt-2 text-[9px] uppercase tracking-widest opacity-50">Vert Speed</div>
-              <div className={`text-lg font-bold ${stats.vy >= DIFF_SETTINGS[difficulty].SAFE_VY * getCalculatedStats(selectedShip, shipUpgrades[selectedShip]).hull ? 'text-red-500' : 'text-[#00ffcc]'}`}>
-                {stats.vy.toFixed(2)} m/s
-              </div>
-              <div className="mt-2 text-[9px] uppercase tracking-widest opacity-50">Horiz Speed</div>
-              <div className={`text-lg font-bold ${stats.vx >= DIFF_SETTINGS[difficulty].SAFE_VX * getCalculatedStats(selectedShip, shipUpgrades[selectedShip]).hull ? 'text-orange-500' : 'text-[#00ffcc]'}`}>
-                {stats.vx.toFixed(2)} m/s
-              </div>
-            </div>
-
-            <div className="absolute top-4 right-4 bg-black/80 border border-[#00ffcc33] p-2 sm:p-3 min-w-[120px] sm:min-w-[160px] text-right backdrop-blur-sm">
-              {mode === 'explore' && (
-                <div className="mb-2 pb-2 border-b border-[#00ffcc33]">
-                  <div className="text-[9px] uppercase tracking-widest opacity-50">Score</div>
-                  <div className="text-xl font-bold text-[#ffcc00]">{exploreScore}</div>
+            {/* HUD (Mobile Optimized) */}
+            <div className="absolute top-4 left-4 flex flex-col gap-1 sm:gap-2 pointer-events-none z-40">
+              <div className="bg-black/80 border border-[#00ffcc33] p-2 sm:p-3 min-w-[120px] sm:min-w-[160px] backdrop-blur-sm">
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 sm:block">
+                  <div>
+                    <div className="text-[7px] sm:text-[9px] uppercase tracking-widest opacity-50">Altitude</div>
+                    <div className="text-xs sm:text-lg font-bold">{stats.alt.toFixed(0)} m</div>
+                  </div>
+                  <div className="sm:mt-2">
+                    <div className="text-[7px] sm:text-[9px] uppercase tracking-widest opacity-50">V-Speed</div>
+                    <div className={`text-xs sm:text-lg font-bold ${stats.vy >= DIFF_SETTINGS[difficulty].SAFE_VY * getCalculatedStats(selectedShip, shipUpgrades[selectedShip]).hull ? 'text-red-500' : 'text-[#00ffcc]'}`}>
+                      {stats.vy.toFixed(2)} m/s
+                    </div>
+                  </div>
+                  <div className="sm:mt-2">
+                    <div className="text-[7px] sm:text-[9px] uppercase tracking-widest opacity-50">H-Speed</div>
+                    <div className={`text-xs sm:text-lg font-bold ${stats.vx >= DIFF_SETTINGS[difficulty].SAFE_VX * getCalculatedStats(selectedShip, shipUpgrades[selectedShip]).hull ? 'text-orange-500' : 'text-[#00ffcc]'}`}>
+                      {stats.vx.toFixed(2)} m/s
+                    </div>
+                  </div>
                 </div>
-              )}
-              <div className="text-[9px] uppercase tracking-widest opacity-50">Fuel</div>
-              <div className={`text-lg font-bold ${stats.fuel < 20 ? 'text-red-500' : 'text-[#00ffcc]'}`}>
-                {stats.fuel.toFixed(0)}%
               </div>
-              <div className="w-full h-1 bg-[#00ffcc11] mt-1 border border-[#00ffcc33]">
-                <div className="h-full bg-gradient-to-r from-red-500 to-[#00ffcc]" style={{ width: `${stats.fuel}%` }} />
-              </div>
-              <div className="mt-2 text-[9px] uppercase tracking-widest opacity-50">Tilt</div>
-              <div className={`text-lg font-bold ${stats.tilt > DIFF_SETTINGS[difficulty].SAFE_DEG ? 'text-red-500' : 'text-[#00ffcc]'}`}>
-                {stats.tilt.toFixed(1)}°
+            </div>
+
+            <div className="absolute top-4 right-4 bg-black/80 border border-[#00ffcc33] p-2 sm:p-3 min-w-[120px] sm:min-w-[160px] text-right backdrop-blur-sm z-40">
+              <div className="flex flex-col items-end gap-1 sm:gap-2">
+                <button 
+                  onClick={() => setGameState('menu')}
+                  className="pointer-events-auto bg-red-500/20 border border-red-500/40 text-red-500 px-2 py-0.5 sm:px-3 sm:py-1 text-[7px] sm:text-[10px] uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all mb-1"
+                >
+                  Abort
+                </button>
+                
+                <div className="w-full">
+                  <div className="text-[7px] sm:text-[9px] uppercase tracking-widest opacity-50">Fuel</div>
+                  <div className={`text-xs sm:text-lg font-bold ${stats.fuel < 20 ? 'text-red-500' : 'text-[#00ffcc]'}`}>
+                    {stats.fuel.toFixed(0)}%
+                  </div>
+                  <div className="w-full h-1 bg-[#00ffcc11] mt-1 border border-[#00ffcc33]">
+                    <div className="h-full bg-gradient-to-r from-red-500 to-[#00ffcc]" style={{ width: `${stats.fuel}%` }} />
+                  </div>
+                </div>
+                
+                <div className="mt-1 sm:mt-2">
+                  <div className="text-[7px] sm:text-[9px] uppercase tracking-widest opacity-50">Tilt</div>
+                  <div className={`text-xs sm:text-lg font-bold ${stats.tilt > DIFF_SETTINGS[difficulty].SAFE_DEG ? 'text-red-500' : 'text-[#00ffcc]'}`}>
+                    {stats.tilt.toFixed(1)}°
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -847,67 +1109,214 @@ export default function App() {
               SAFE: VY &lt; {(DIFF_SETTINGS[difficulty].SAFE_VY * getCalculatedStats(selectedShip, shipUpgrades[selectedShip]).hull).toFixed(1)} · VX &lt; {(DIFF_SETTINGS[difficulty].SAFE_VX * getCalculatedStats(selectedShip, shipUpgrades[selectedShip]).hull).toFixed(1)} · TILT &lt; {(DIFF_SETTINGS[difficulty].SAFE_DEG * getCalculatedStats(selectedShip, shipUpgrades[selectedShip]).hull).toFixed(1)}°
             </div>
 
-            {/* Touch Controls */}
+            {/* Mission Notification */}
+            {missionNotify && (
+              <div className="absolute top-24 left-1/2 -translate-x-1/2 bg-[#00ffcc] text-black px-4 py-2 font-bold tracking-[0.2em] text-xs shadow-[0_0_20px_rgba(0,255,204,0.5)] animate-bounce z-[60]">
+                {missionNotify}
+              </div>
+            )}
+
+            <div className="absolute bottom-4 right-4 flex flex-col gap-2 pointer-events-none sm:bottom-auto sm:top-36">
+              <div className="bg-black/60 border border-[#00ffcc22] p-2 backdrop-blur-sm min-w-[140px] sm:min-w-[160px]">
+                <div className="text-[7px] tracking-[0.2em] text-[#00ffcc66] mb-1.5 uppercase flex justify-between items-center">
+                  <span>Missions</span>
+                  <span className="text-[#ffcc00]">{completedMissions.length}/3</span>
+                </div>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-1.5 h-1.5 border border-[#00ffcc44] flex-shrink-0 ${completedMissions.includes('precision') ? 'bg-[#00ffcc]' : ''}`}></div>
+                    <div className={`text-[8px] font-bold tracking-wider ${completedMissions.includes('precision') ? 'text-[#00ffcc66] line-through' : 'text-white'}`}>PRECISION</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className={`w-1.5 h-1.5 border border-[#00ffcc44] flex-shrink-0 ${completedMissions.includes('fuel') ? 'bg-[#00ffcc]' : ''}`}></div>
+                    <div className={`text-[8px] font-bold tracking-wider ${completedMissions.includes('fuel') ? 'text-[#00ffcc66] line-through' : 'text-white'}`}>FUEL CONSERV.</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className={`w-1.5 h-1.5 border border-[#00ffcc44] flex-shrink-0 ${completedMissions.includes('explore') ? 'bg-[#00ffcc]' : ''}`}></div>
+                    <div className={`text-[8px] font-bold tracking-wider ${completedMissions.includes('explore') ? 'text-[#00ffcc66] line-through' : 'text-white'}`}>LONG HAUL</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Touch Controls (Ergonomic Mobile Layout) */}
             {gameState === 'playing' && (
-              <div className="absolute bottom-4 left-0 right-0 flex justify-between px-4 sm:hidden pointer-events-none z-50">
-                <div className="flex gap-2 pointer-events-auto">
+              <div className="absolute bottom-6 left-0 right-0 flex justify-between px-8 sm:hidden pointer-events-none z-50">
+                {/* Left Side: Rotation */}
+                <div className="flex gap-4 pointer-events-auto">
                   <button 
                     onPointerDown={() => handleTouch('arrowleft', true)}
                     onPointerUp={() => handleTouch('arrowleft', false)}
                     onPointerLeave={() => handleTouch('arrowleft', false)}
-                    className="w-14 h-14 bg-black/50 border border-[#00ffcc] rounded-full flex items-center justify-center text-2xl active:bg-[#00ffcc] active:text-black select-none backdrop-blur-sm"
-                  >←</button>
+                    className="w-16 h-16 bg-black/40 border-2 border-[#00ffcc]/30 rounded-2xl flex items-center justify-center active:bg-[#00ffcc] active:scale-95 transition-all backdrop-blur-md"
+                  >
+                    <ChevronLeft className="w-8 h-8 text-[#00ffcc]" />
+                  </button>
                   <button 
                     onPointerDown={() => handleTouch('arrowright', true)}
                     onPointerUp={() => handleTouch('arrowright', false)}
                     onPointerLeave={() => handleTouch('arrowright', false)}
-                    className="w-14 h-14 bg-black/50 border border-[#00ffcc] rounded-full flex items-center justify-center text-2xl active:bg-[#00ffcc] active:text-black select-none backdrop-blur-sm"
-                  >→</button>
+                    className="w-16 h-16 bg-black/40 border-2 border-[#00ffcc]/30 rounded-2xl flex items-center justify-center active:bg-[#00ffcc] active:scale-95 transition-all backdrop-blur-md"
+                  >
+                    <ChevronRight className="w-8 h-8 text-[#00ffcc]" />
+                  </button>
                 </div>
+                
+                {/* Right Side: Thrust */}
                 <div className="pointer-events-auto">
                   <button 
                     onPointerDown={() => handleTouch('arrowup', true)}
                     onPointerUp={() => handleTouch('arrowup', false)}
                     onPointerLeave={() => handleTouch('arrowup', false)}
-                    className="w-16 h-16 bg-black/50 border border-[#00ffcc] rounded-full flex items-center justify-center text-3xl active:bg-[#00ffcc] active:text-black select-none backdrop-blur-sm"
-                  >↑</button>
+                    className="w-20 h-20 bg-black/40 border-2 border-[#ffcc00]/30 rounded-full flex items-center justify-center active:bg-[#ffcc00] active:scale-95 transition-all backdrop-blur-md shadow-[0_0_20px_rgba(255,204,0,0.1)]"
+                  >
+                    <Zap className="w-10 h-10 text-[#ffcc00]" />
+                  </button>
                 </div>
+              </div>
+            )}
+
+            {mode === 'training' && gameState === 'playing' && (
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none text-center space-y-2">
+                {stats.alt > 100 && <div className="text-[#44ff44] text-xs animate-pulse tracking-widest">DESCEND SLOWLY TO A PAD</div>}
+                {stats.alt < 50 && stats.vy > 5 && <div className="text-red-500 text-xs animate-pulse tracking-widest font-bold">SLOW DOWN! USE THRUSTERS</div>}
+                {Math.abs(stats.tilt) > 20 && <div className="text-orange-500 text-xs animate-pulse tracking-widest">KEEP SHIP UPRIGHT</div>}
               </div>
             )}
           </div>
         )}
 
         {/* Overlays */}
-        {(gameState === 'menu' || result) && (
-          <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center text-center p-8">
-            <div className="relative mb-12 flex flex-col items-center">
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120%] h-[160%] bg-[#00ffcc] opacity-20 blur-[60px] rounded-full pointer-events-none"></div>
+        {/* Overlays */}
+        {showTutorialPrompt && (
+          <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-[100] backdrop-blur-md">
+            <div className="bg-[#000d22] border-2 border-[#00ffcc] p-8 max-w-md text-center shadow-[0_0_50px_rgba(0,255,204,0.3)]">
+              <h2 className="text-2xl font-bold text-white mb-4 tracking-widest">NEW PILOT DETECTED</h2>
+              <p className="text-[#00ffcc88] mb-8 leading-relaxed">
+                Welcome to the Lunar Descent Program. Would you like to undergo a brief training simulation to learn the flight controls?
+              </p>
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={startTutorial}
+                  className="w-full py-3 bg-[#00ffcc] text-black font-bold tracking-widest hover:bg-white transition-colors"
+                >
+                  START TRAINING
+                </button>
+                <button
+                  onClick={() => {
+                    setShowTutorialPrompt(false);
+                    completeTutorial();
+                  }}
+                  className="w-full py-3 border border-[#00ffcc44] text-[#00ffcc88] hover:text-[#00ffcc] transition-colors text-xs tracking-widest"
+                >
+                  SKIP (I'M AN EXPERT)
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isTutorialActive && gameState === 'playing' && (
+          <div className="absolute top-24 left-1/2 -translate-x-1/2 w-full max-w-lg pointer-events-none z-[60]">
+            <div className="bg-black/60 border border-[#00ffcc] p-4 backdrop-blur-sm text-center">
+              <div className="text-[10px] text-[#00ffcc88] uppercase tracking-[0.2em] mb-1">Training Objective</div>
+              <div className="text-lg text-white font-bold tracking-wide">
+                {tutorialStep === 1 && "Press W or UP to use THRUSTERS. Get some altitude!"}
+                {tutorialStep === 2 && "Use A/D or LEFT/RIGHT to ROTATE. Keep the ship upright."}
+                {tutorialStep === 3 && "Fly through the NAVIGATION RING in the sky."}
+                {tutorialStep === 4 && "Precision Hover: Stay 10-20m above ground for 3 seconds."}
+                {tutorialStep === 5 && "Final Test: Find a green PAD and land GENTLY (Speed < 10m/s)."}
+                {tutorialStep === 6 && "EXCELLENT! You have mastered the basics."}
+              </div>
+              {tutorialStep === 6 && (
+                <button
+                  onClick={completeTutorial}
+                  className="mt-4 px-6 py-2 bg-[#00ffcc] text-black font-bold text-xs tracking-widest pointer-events-auto hover:bg-white transition-colors"
+                >
+                  FINISH TRAINING
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {(gameState === 'menu' || (result && !isTutorialActive)) && (
+          <div className="absolute inset-0 bg-black/95 flex flex-col items-center justify-center p-4 sm:p-8 z-[100]">
+            <div className="relative mt-2 sm:mt-8 mb-4 sm:mb-8 flex flex-col items-center shrink-0">
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120%] h-[160%] bg-[#00ffcc] opacity-20 blur-[30px] sm:blur-[60px] rounded-full pointer-events-none"></div>
               <h1 
-                className="text-[52px] font-black text-white tracking-[8px] mb-[6px] relative z-10 ml-[8px]"
-                style={{ textShadow: '0 0 30px #00ffcc, 0 0 60px #00ffcc55', fontFamily: "'Orbitron', sans-serif" }}
+                className="text-[28px] sm:text-[52px] font-black text-white tracking-[4px] sm:tracking-[8px] mb-[2px] sm:mb-[6px] relative z-10 ml-[4px] sm:ml-[8px]"
+                style={{ textShadow: '0 0 15px #00ffcc, 0 0 30px #00ffcc55', fontFamily: "'Orbitron', sans-serif" }}
               >
                 LUNAR
               </h1>
-              <p className="text-sm md:text-base tracking-[1.2em] text-[#00ffcc] relative z-10 ml-[1.2em] font-medium drop-shadow-[0_0_8px_rgba(0,255,204,0.8)]">
+              <p className="text-[8px] sm:text-sm md:text-base tracking-[0.8em] sm:tracking-[1.2em] text-[#00ffcc] relative z-10 ml-[0.8em] sm:ml-[1.2em] font-medium drop-shadow-[0_0_8px_rgba(0,255,204,0.8)]">
                 DESCENT
               </p>
             </div>
 
-            {gameState === 'menu' && !user ? (
-              <div className="flex flex-col items-center gap-4 mb-8 z-10">
+            {gameState === 'menu' && !user && !guestId ? (
+              <div className="flex flex-col items-center gap-6 mb-8 z-10 w-full max-w-xs">
                 <div className="text-xs tracking-widest text-[#00ffcc88]">PILOT AUTHENTICATION REQUIRED</div>
+                
                 <button
                   onClick={() => signInWithPopup(auth, provider).catch(err => console.error(err))}
-                  className="px-8 py-3 border border-[#00ffcc] text-[#00ffcc] hover:bg-[#00ffcc] hover:text-black transition-all font-bold tracking-widest flex items-center gap-2"
+                  className="w-full px-8 py-3 border border-[#00ffcc] text-[#00ffcc] hover:bg-[#00ffcc] hover:text-black transition-all font-bold tracking-widest flex items-center justify-center gap-2"
                 >
                   <svg className="w-5 h-5" viewBox="0 0 24 24">
                     <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
                     <path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
                     <path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
-                    <path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+                    <path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
                   </svg>
                   SIGN IN WITH GOOGLE
                 </button>
+
+                <div className="flex items-center w-full gap-4">
+                  <div className="h-px bg-[#00ffcc22] flex-1"></div>
+                  <div className="text-[10px] text-[#00ffcc44] tracking-widest">OR</div>
+                  <div className="h-px bg-[#00ffcc22] flex-1"></div>
+                </div>
+
+                <div className="w-full flex flex-col gap-3">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="ENTER CALLSIGN"
+                      maxLength={15}
+                      className="flex-1 bg-black/50 border border-[#00ffcc44] text-[#00ffcc] px-4 py-2 text-xs outline-none focus:border-[#00ffcc] transition-all uppercase tracking-widest"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          const val = (e.target as HTMLInputElement).value.trim();
+                          if (val) {
+                            const id = 'GUEST_' + Math.random().toString(36).substring(2, 9);
+                            localStorage.setItem('guestId', id);
+                            localStorage.setItem('pilotName', val.toUpperCase());
+                            setRegisteredName(val.toUpperCase());
+                            setGuestId(id);
+                          }
+                        }
+                      }}
+                    />
+                    <button
+                      onClick={(e) => {
+                        const input = (e.currentTarget.previousSibling as HTMLInputElement);
+                        const val = input.value.trim();
+                        if (val) {
+                          const id = 'GUEST_' + Math.random().toString(36).substring(2, 9);
+                          localStorage.setItem('guestId', id);
+                          localStorage.setItem('pilotName', val.toUpperCase());
+                          setRegisteredName(val.toUpperCase());
+                          setGuestId(id);
+                        }
+                      }}
+                      className="px-4 py-2 border border-[#00ffcc44] text-[#00ffcc88] hover:border-[#00ffcc] hover:text-[#00ffcc] text-[10px] tracking-widest transition-all"
+                    >
+                      GO
+                    </button>
+                  </div>
+                  <div className="text-[9px] text-[#00ffcc44] text-center italic">OR PLAY AS GUEST WITHOUT GMAIL</div>
+                </div>
               </div>
             ) : result ? (
               <div className="mb-8 w-full max-w-md">
@@ -1141,7 +1550,16 @@ export default function App() {
                   )}
                   {!isEditingName && (
                     <button 
-                      onClick={() => signOut(auth)}
+                      onClick={() => {
+                        if (user) {
+                          signOut(auth);
+                        }
+                        localStorage.removeItem('guestId');
+                        setGuestId(null);
+                        setUser(null);
+                        setIsProfileLoaded(false);
+                        setRegisteredName('');
+                      }}
                       className="text-[10px] text-red-500 hover:text-red-400 border border-red-500/30 hover:border-red-500 px-2 py-1 tracking-widest"
                     >
                       SIGN OUT
@@ -1150,28 +1568,44 @@ export default function App() {
                 </div>
                 <div className="text-xs text-[#00ffcc88] mb-6 tracking-widest">CREDITS: <span className="text-[#ffcc00] font-bold">{credits}</span></div>
                 
-                <div className="flex gap-4 mb-6 w-full">
+                <div className="grid grid-cols-2 gap-2 mb-4 w-full">
                   <button
-                    onClick={() => setMode('classic')}
-                    className={`flex-1 py-3 text-sm tracking-widest border ${mode === 'classic' ? 'bg-[#00ffcc] text-black border-[#00ffcc]' : 'border-[#00ffcc44] text-[#00ffcc88] hover:border-[#00ffcc]'}`}
+                    onClick={() => { setMode('classic'); vibrate(5); }}
+                    className={`py-2 sm:py-4 text-[10px] sm:text-sm tracking-widest border flex flex-col items-center gap-1 sm:gap-2 transition-all ${mode === 'classic' ? 'bg-[#00ffcc] text-black border-[#00ffcc] shadow-[0_0_15px_rgba(0,255,204,0.3)]' : 'border-[#00ffcc44] text-[#00ffcc88] hover:border-[#00ffcc]'}`}
                   >
+                    <Rocket className="w-4 h-4 sm:w-5 h-5" />
                     CLASSIC
                   </button>
                   <button
-                    onClick={() => setMode('explore')}
-                    className={`flex-1 py-3 text-sm tracking-widest border ${mode === 'explore' ? 'bg-[#00ffcc] text-black border-[#00ffcc]' : 'border-[#00ffcc44] text-[#00ffcc88] hover:border-[#00ffcc]'}`}
+                    onClick={() => { setMode('explore'); vibrate(5); }}
+                    className={`py-2 sm:py-4 text-[10px] sm:text-sm tracking-widest border flex flex-col items-center gap-1 sm:gap-2 transition-all ${mode === 'explore' ? 'bg-[#00ffcc] text-black border-[#00ffcc] shadow-[0_0_15px_rgba(0,255,204,0.3)]' : 'border-[#00ffcc44] text-[#00ffcc88] hover:border-[#00ffcc]'}`}
                   >
+                    <Target className="w-4 h-4 sm:w-5 h-5" />
                     EXPLORE
+                  </button>
+                  <button
+                    onClick={() => { setMode('fun'); vibrate(5); }}
+                    className={`py-2 sm:py-4 text-[10px] sm:text-sm tracking-widest border flex flex-col items-center gap-1 sm:gap-2 transition-all ${mode === 'fun' ? 'bg-[#ffcc00] text-black border-[#ffcc00] shadow-[0_0_15px_rgba(255,204,0,0.3)]' : 'border-[#ffcc0044] text-[#ffcc0088] hover:border-[#ffcc00]'}`}
+                  >
+                    <Play className="w-4 h-4 sm:w-5 h-5" />
+                    FUN
+                  </button>
+                  <button
+                    onClick={() => { setMode('training'); vibrate(5); }}
+                    className={`py-2 sm:py-4 text-[10px] sm:text-sm tracking-widest border flex flex-col items-center gap-1 sm:gap-2 transition-all ${mode === 'training' ? 'bg-[#44ff44] text-black border-[#44ff44] shadow-[0_0_15px_rgba(68,255,68,0.3)]' : 'border-[#44ff4444] text-[#44ff4488] hover:border-[#44ff44]'}`}
+                  >
+                    <Info className="w-4 h-4 sm:w-5 h-5" />
+                    TRAINING
                   </button>
                 </div>
 
                 {mode === 'classic' && (
-                  <div className="flex gap-2 sm:gap-4 mb-6 w-full justify-center">
+                  <div className="flex gap-2 sm:gap-4 mb-4 w-full justify-center">
                     {(['easy', 'medium', 'hard'] as Difficulty[]).map(d => (
                       <button
                         key={d}
                         onClick={() => setDifficulty(d)}
-                        className={`px-4 py-2 text-xs tracking-widest border ${difficulty === d ? 'bg-[#00ffcc] text-black border-[#00ffcc]' : 'border-[#00ffcc44] text-[#00ffcc88] hover:border-[#00ffcc]'}`}
+                        className={`px-3 py-1 sm:px-4 sm:py-2 text-[10px] sm:text-xs tracking-widest border ${difficulty === d ? 'bg-[#00ffcc] text-black border-[#00ffcc]' : 'border-[#00ffcc44] text-[#00ffcc88] hover:border-[#00ffcc]'}`}
                       >
                         {d.toUpperCase()}
                       </button>
@@ -1180,13 +1614,75 @@ export default function App() {
                 )}
 
                 {mode === 'explore' && (
-                  <div className="text-xs text-[#00ffcc88] mb-6 text-center max-w-sm">
+                  <div className="text-[10px] text-[#00ffcc88] mb-4 text-center max-w-sm">
                     Infinite terrain. Land on stations to refuel and earn credits. Take off again by thrusting. How far can you go?
                   </div>
                 )}
 
+                {mode === 'fun' && (
+                  <div className="text-[10px] text-[#ffcc0088] mb-4 text-center max-w-sm">
+                    Infinite fuel. No crashing. Bounce off everything! Perfect for stunts and relaxing flight.
+                  </div>
+                )}
+
+                {mode === 'training' && (
+                  <div className="text-[10px] text-[#44ff4488] mb-4 text-center max-w-sm">
+                    Infinite fuel. Very forgiving landing conditions. Learn the basics without the pressure.
+                  </div>
+                )}
+
+            {/* Missions Panel (Menu) */}
+            {gameState === 'menu' && (
+              <div className="sm:absolute sm:top-4 sm:right-4 w-full max-w-md sm:w-64 bg-black/80 border border-[#00ffcc22] p-2 sm:p-4 backdrop-blur-md shadow-[0_0_30px_rgba(0,255,204,0.1)] z-50 mb-4 sm:mb-0">
+                <div 
+                  className="text-[8px] sm:text-[10px] tracking-[0.3em] text-[#00ffcc] mb-1 sm:mb-3 uppercase flex justify-between items-center border-b border-[#00ffcc22] pb-1 sm:pb-2 cursor-pointer sm:cursor-default"
+                  onClick={() => setShowMissionsMobile(!showMissionsMobile)}
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="w-1 h-1 sm:w-1.5 h-1.5 bg-[#00ffcc] animate-pulse"></span>
+                    PILOT MISSIONS
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[#ffcc00] font-bold">{completedMissions.length}/3</span>
+                    <span className="sm:hidden text-[#00ffcc]">{showMissionsMobile ? '▲' : '▼'}</span>
+                  </div>
+                </div>
+                <div className={`${showMissionsMobile ? 'grid' : 'hidden'} sm:grid grid-cols-1 gap-1 sm:block sm:space-y-3`}>
+                  <div className="flex items-start gap-2 sm:gap-3">
+                    <div className={`w-2 h-2 sm:w-4 h-4 border border-[#00ffcc44] mt-0.5 flex-shrink-0 flex items-center justify-center ${completedMissions.includes('precision') ? 'bg-[#00ffcc22] border-[#00ffcc]' : ''}`}>
+                      {completedMissions.includes('precision') && <span className="text-[#00ffcc] text-[7px] sm:text-[10px]">✓</span>}
+                    </div>
+                    <div>
+                      <div className={`text-[8px] sm:text-[10px] font-bold tracking-widest ${completedMissions.includes('precision') ? 'text-[#00ffcc44] line-through' : 'text-white'}`}>PRECISION LANDING</div>
+                      <div className="text-[6px] sm:text-[8px] text-[#00ffcc66] mt-0.5">Speed &lt; 1m/s</div>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2 sm:gap-3">
+                    <div className={`w-2 h-2 sm:w-4 h-4 border border-[#00ffcc44] mt-0.5 flex-shrink-0 flex items-center justify-center ${completedMissions.includes('fuel') ? 'bg-[#00ffcc22] border-[#00ffcc]' : ''}`}>
+                      {completedMissions.includes('fuel') && <span className="text-[#00ffcc] text-[7px] sm:text-[10px]">✓</span>}
+                    </div>
+                    <div>
+                      <div className={`text-[8px] sm:text-[10px] font-bold tracking-widest ${completedMissions.includes('fuel') ? 'text-[#00ffcc44] line-through' : 'text-white'}`}>FUEL CONSERVATION</div>
+                      <div className="text-[6px] sm:text-[8px] text-[#00ffcc66] mt-0.5">Fuel &gt; 80%</div>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2 sm:gap-3">
+                    <div className={`w-2 h-2 sm:w-4 h-4 border border-[#00ffcc44] mt-0.5 flex-shrink-0 flex items-center justify-center ${completedMissions.includes('explore') ? 'bg-[#00ffcc22] border-[#00ffcc]' : ''}`}>
+                      {completedMissions.includes('explore') && <span className="text-[#00ffcc] text-[7px] sm:text-[10px]">✓</span>}
+                    </div>
+                    <div>
+                      <div className={`text-[8px] sm:text-[10px] font-bold tracking-widest ${completedMissions.includes('explore') ? 'text-[#00ffcc44] line-through' : 'text-white'}`}>LONG HAUL</div>
+                      <div className="text-[6px] sm:text-[8px] text-[#00ffcc66] mt-0.5">5 pads in Explore</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+                {/* Mobile/Small Screen Missions (Menu) - REMOVED, now using absolute corner panel */}
+
                 {leaderboard.length > 0 && mode === 'classic' && (
-                  <div className="w-full bg-black/50 border border-[#00ffcc22] p-4 mb-8 text-left">
+                  <div className="hidden sm:block w-full bg-black/50 border border-[#00ffcc22] p-4 mb-4 text-left">
                     <div className="text-xs tracking-widest text-[#00ffcc88] mb-3 text-center">TOP PILOTS</div>
                     <div className="space-y-2">
                       {leaderboard.map((entry, i) => (
@@ -1216,27 +1712,37 @@ export default function App() {
             )}
 
             {registeredName && !showShop && (
-              <div className="flex gap-4 mt-4">
-                <button
-                  onClick={startGame}
-                  className="px-8 sm:px-12 py-3 sm:py-4 border border-[#00ffcc] text-[#00ffcc] hover:bg-[#00ffcc] hover:text-black transition-all duration-200 tracking-widest font-bold"
-                >
-                  {gameState === 'menu' ? 'INITIATE DESCENT' : 'RETRY MISSION'}
-                </button>
+              <div className="flex flex-col items-center gap-2 mt-2 w-full">
+                <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full max-w-xs sm:max-w-none justify-center px-4 sm:px-0">
+                  <button
+                    onClick={() => { startGame(); vibrate(15); }}
+                    className="w-full sm:w-auto px-6 sm:px-12 py-2 sm:py-5 border-2 border-[#00ffcc] text-[#00ffcc] hover:bg-[#00ffcc] hover:text-black transition-all duration-200 tracking-widest font-bold text-[10px] sm:text-base shadow-[0_0_20px_rgba(0,255,204,0.2)] active:scale-95"
+                  >
+                    {gameState === 'menu' ? 'INITIATE DESCENT' : 'RETRY MISSION'}
+                  </button>
+                  {gameState === 'menu' && (
+                    <button
+                      onClick={() => { setShowShop(true); vibrate(10); }}
+                      className="w-full sm:w-auto px-6 sm:px-12 py-2 sm:py-5 border-2 border-[#ffcc00] text-[#ffcc00] hover:bg-[#ffcc00] hover:text-black transition-all duration-200 tracking-widest font-bold text-[10px] sm:text-base shadow-[0_0_20px_rgba(255,204,0,0.2)] active:scale-95"
+                    >
+                      SHIPYARD
+                    </button>
+                  )}
+                  {gameState !== 'menu' && (
+                    <button
+                      onClick={() => { exitToMenu(); vibrate(10); }}
+                      className="w-full sm:w-auto px-8 sm:px-12 py-2 sm:py-5 border-2 border-[#00ffcc44] text-[#00ffcc88] hover:border-[#00ffcc] hover:text-[#00ffcc] transition-all duration-200 tracking-widest font-bold text-[10px] sm:text-base active:scale-95"
+                    >
+                      MENU
+                    </button>
+                  )}
+                </div>
                 {gameState === 'menu' && (
                   <button
-                    onClick={() => setShowShop(true)}
-                    className="px-6 sm:px-8 py-3 sm:py-4 border border-[#ffcc00] text-[#ffcc00] hover:bg-[#ffcc00] hover:text-black transition-all duration-200 tracking-widest font-bold"
+                    onClick={startTutorial}
+                    className="text-[8px] sm:text-[10px] text-[#00ffcc66] hover:text-[#00ffcc] tracking-[0.2em] sm:tracking-[0.3em] transition-all"
                   >
-                    SHIPYARD
-                  </button>
-                )}
-                {gameState !== 'menu' && (
-                  <button
-                    onClick={exitToMenu}
-                    className="px-6 sm:px-8 py-3 sm:py-4 border border-[#00ffcc44] text-[#00ffcc88] hover:border-[#00ffcc] hover:text-[#00ffcc] transition-all duration-200 tracking-widest font-bold"
-                  >
-                    MENU
+                    — REPLAY TRAINING SIMULATION —
                   </button>
                 )}
               </div>
